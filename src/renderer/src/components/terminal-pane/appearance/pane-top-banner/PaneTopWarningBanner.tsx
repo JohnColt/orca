@@ -81,7 +81,7 @@ const TONE_CLASSES: Record<PaneTopBannerTone, { stripClass: string; iconClass: s
 
 export type PaneTopBannerProps = {
   title: string
-  /** What a screen reader announces instead of the title; set it when the title ticks. */
+  /** Moves the live region to one hidden node that announces this; pass it in every phase so the node persists. */
   announcement?: string
   body?: React.ReactNode
   tone?: PaneTopBannerTone

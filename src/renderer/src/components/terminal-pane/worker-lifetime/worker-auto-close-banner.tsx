@@ -30,15 +30,15 @@ export function workerAutoCloseBannerProps(
           { countdown: formatWorkerAutoCloseCountdown(state.closesAt, nowMs) }
         )
   return {
-    // Why: the countdown re-renders every second; a live region over it would re-announce each tick.
-    ...(state.closesAt === null
-      ? {}
-      : {
-          announcement: t(
+    // Why in both phases: one live node that persists from mount is announced reliably when its text
+    // changes; the ticking countdown stays outside it.
+    announcement:
+      state.closesAt === null
+        ? title
+        : t(
             'components.orchestration.workerAutoClose.bannerFinishedStatus',
-            'Orchestration worker finished · Closes in 2 minutes'
-          )
-        }),
+            'Orchestration worker finished · Closes soon'
+          ),
     tone: state.closesAt === null ? 'accent' : 'warning',
     icon: Timer,
     badge: t('components.orchestration.workerAutoClose.temporaryBadge', 'Temporary'),
