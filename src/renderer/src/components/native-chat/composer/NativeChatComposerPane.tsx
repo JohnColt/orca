@@ -20,7 +20,10 @@ import { useNativeChatFileDrops } from '../attachments/intake/use-native-chat-fi
 import { useNativeChatComposerKeyDown } from './editor/use-native-chat-composer-keydown'
 import { useNativeChatSendLifecycle } from '../session/terminal/send/use-native-chat-send-lifecycle'
 import { useNativeChatComposerSessionOptions } from './controls/use-native-chat-composer-session-options'
-import { useNativeChatDictation } from './editor/use-native-chat-dictation'
+import {
+  useNativeChatDictation,
+  nativeChatDictationFieldProps
+} from './editor/use-native-chat-dictation'
 import { useNativeChatPtyComposerSend } from './submit/use-native-chat-pty-composer-send'
 import { useNativeChatStructuredComposerSend } from './submit/use-native-chat-structured-composer-send'
 import { useImeEnterGestureOwnership } from '@/lib/text-input/ime/ime-composition-keyboard-event'
@@ -35,6 +38,7 @@ type ComposerHandle = C.NativeChatComposerHandle
 export const NativeChatComposerPane = forwardRef<ComposerHandle, C.NativeChatComposerProps>(
   function NativeChatComposerPane(
     {
+      dock,
       terminalTabId,
       room,
       editSession,
@@ -360,6 +364,7 @@ export const NativeChatComposerPane = forwardRef<ComposerHandle, C.NativeChatCom
       <div ref={root} data-native-chat-composer-scope={draftScopeKey}>
         <NativeChatComposerRoomProvider mentions={mentions}>
           <NativeChatComposerField
+            dock={dock}
             draftScopeKey={draftScopeKey}
             positionTarget={editSession ? undefined : terminalTabId}
             textareaRef={textareaRef}
@@ -381,9 +386,7 @@ export const NativeChatComposerPane = forwardRef<ComposerHandle, C.NativeChatCom
             isStopping={isStopping}
             afterStop={afterStop}
             attachDisabled={attachDisabled}
-            dictationDisabled={dictation.dictationDisabled}
-            isDictating={dictation.isDictating}
-            isDictationHoldMode={dictation.isDictationHoldMode}
+            {...nativeChatDictationFieldProps(dictation)}
             imeEnterGesture={imeEnterGesture}
             {...draftEvents}
             onKeyDown={handleKeyDown}
@@ -395,9 +398,6 @@ export const NativeChatComposerPane = forwardRef<ComposerHandle, C.NativeChatCom
             onChooseMentionFile={mentions.chooseMention}
             onRemoveImageAttachment={attachments.removeImageAttachment}
             onAttach={fileDrops.pickAttachments}
-            onDictationToggle={dictation.toggleDictation}
-            onDictationHoldStart={dictation.startHoldDictation}
-            onDictationHoldEnd={dictation.stopHoldDictation}
             onSend={send}
             steerPreview={steerChord.preview}
             onSteerPreview={steerChord.runPreview}
