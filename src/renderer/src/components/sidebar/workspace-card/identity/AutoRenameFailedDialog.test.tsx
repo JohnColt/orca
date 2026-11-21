@@ -142,14 +142,14 @@ const ignoreOpenChange = (_open: boolean): void => {}
 const EXCERPT_ERROR = 'Pi CLI command failed with code 1: No API key found for github-copilot.'
 
 describe('AutoRenameFailedDialog retry', () => {
-  it('offers only Dismiss when retry is unavailable for this workspace', async () => {
+  it('offers no Try again when retry is unavailable for this workspace', async () => {
     await renderFailure(false)
-    expect(footerButtons()).toEqual(['Dismiss'])
+    expect(footerButtons()).toEqual(['Dismiss', 'Open Settings'])
   })
 
   it('disables both buttons while naming, then closes when the branch is renamed', async () => {
     await renderFailure()
-    expect(footerButtons()).toEqual(['Dismiss', 'Try again'])
+    expect(footerButtons()).toEqual(['Dismiss', 'Open Settings', 'Try again'])
     const attempt = Promise.withResolvers<BranchAutoRenameRetryResult>()
     retryBranchAutoRename.mockReturnValue(attempt.promise)
     await act(async () => button('Try again')?.click())
@@ -176,7 +176,7 @@ describe('AutoRenameFailedDialog retry', () => {
     const dialog = document.querySelector('[role="dialog"]')?.textContent ?? ''
     expect(dialog).toContain('Codex CLI timed out after 60s')
     expect(dialog).toMatch(/Error details · \S/)
-    expect(footerButtons()).toEqual(['Dismiss', 'Try again'])
+    expect(footerButtons()).toEqual(['Dismiss', 'Open Settings', 'Try again'])
   })
 
   it('keeps a final reason open with Dismiss only after the error clears', async () => {
@@ -426,7 +426,7 @@ describe('AutoRenameFailedDialog when an attempt stops reporting back', () => {
 
   it('offers Try again for a local attempt that starts after availability said no', async () => {
     await renderFailure(false)
-    expect(footerButtons()).toEqual(['Dismiss'])
+    expect(footerButtons()).toEqual(['Dismiss', 'Open Settings'])
     await started(6)
     expectBusy()
     await waitOutObservation()
@@ -736,5 +736,31 @@ describe('AutoRenameFailedDialog sessions and focus', () => {
       second.resolve({ attemptId: 2, outcome: { kind: 'nothing-yet' }, finishedAt: 1 })
     )
     expect(liveRegion()).toBe('No changes to name this branch from yet.')
+  })
+})
+
+describe('AutoRenameFailedDialog Open Settings', () => {
+  it('opens Settings at the Branch name agent and keeps the error for Try again', async () => {
+    useAppStore.setState({ activeView: 'terminal', settingsNavigationTarget: null })
+    await renderFailure()
+    const openSettings = Array.from(document.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent === 'Open Settings'
+    )
+    await act(async () => openSettings?.click())
+    expect(document.querySelector('[role="dialog"][data-state="open"]')).toBeNull()
+    expect(container.textContent).toContain('rename failed')
+    expect(updateWorktreeMeta).not.toHaveBeenCalled()
+    expect(useAppStore.getState().activeView).toBe('settings')
+    expect(useAppStore.getState().settingsNavigationTarget).toEqual({
+      pane: 'git',
+      repoId: null,
+      sectionId: 'source-control-ai-action-branchName'
+    })
+  })
+
+  it('offers no Open Settings for a timeout, which no setting fixes', async () => {
+    await renderFailure()
+    await act(async () => setStoredError('Generation timed out after 60s.'))
+    expect(footerButtons()).toEqual(['Dismiss', 'Try again'])
   })
 })
