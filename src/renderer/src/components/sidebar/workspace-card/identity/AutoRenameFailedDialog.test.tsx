@@ -9,6 +9,7 @@ import { useAppStore } from '@/store'
 import type { AppState } from '@/store/types'
 import { makeWorktree } from '@/store/slices/worktrees/worktree.test-fixture'
 import type { ExecutionHostId } from '../../../../../../shared/execution-host/execution-host'
+import type { Repo } from '../../../../../../shared/repository/repo-types'
 import type {
   BranchAutoRenameAttemptEvent,
   BranchAutoRenameRetryResult
@@ -739,6 +740,14 @@ describe('AutoRenameFailedDialog sessions and focus', () => {
   })
 })
 
+const makeRepo = (id: string): Repo => ({
+  id,
+  path: `/path/${id}`,
+  displayName: id,
+  badgeColor: '#999999',
+  addedAt: 1
+})
+
 describe('AutoRenameFailedDialog Open Settings', () => {
   it('opens Settings at the Branch name agent and keeps the error for Try again', async () => {
     useAppStore.setState({ activeView: 'terminal', settingsNavigationTarget: null })
@@ -754,7 +763,35 @@ describe('AutoRenameFailedDialog Open Settings', () => {
     expect(useAppStore.getState().settingsNavigationTarget).toEqual({
       pane: 'git',
       repoId: null,
-      sectionId: 'source-control-ai-action-branchName'
+      sectionId: 'source-control-ai-action-branchName',
+      focusFirstControl: true
+    })
+  })
+
+  it("opens the workspace host's repo row, not a same-id paired twin listed first", async () => {
+    useAppStore.setState({
+      activeView: 'terminal',
+      settingsNavigationTarget: null,
+      repos: [
+        { ...makeRepo('repo1'), executionHostId: 'runtime:env-1' },
+        {
+          ...makeRepo('repo1'),
+          executionHostId: 'local',
+          sourceControlAi: { actionOverrides: { branchName: { agentId: 'codex' } } }
+        }
+      ]
+    })
+    await renderFailure()
+    const openSettings = Array.from(document.querySelectorAll('button')).find(
+      (candidate) => candidate.textContent === 'Open Settings'
+    )
+    await act(async () => openSettings?.click())
+    expect(useAppStore.getState().settingsNavigationTarget).toEqual({
+      pane: 'repo',
+      repoId: 'repo1',
+      hostId: 'local',
+      sectionId: 'repo-repo1-source-control-ai-branchName',
+      focusFirstControl: true
     })
   })
 
