@@ -1,5 +1,5 @@
 import { SecuritySurface } from '@/components/ui/security-surface'
-import { useLayoutEffect, useRef, useState } from 'react'
+import { useRef, useState } from 'react'
 import { ChevronDown, Loader2, ShieldQuestion, X } from 'lucide-react'
 import { NativeChatApprovalDetail } from './NativeChatApprovalDetail'
 import { approvalDetailPreview } from '../../../../../shared/agent-session/requests/prompts/agent-session-approval-detail-preview'
@@ -19,6 +19,7 @@ import { NativeChatCodeBlock } from '../markdown/code/NativeChatCodeBlock'
 import type { ChatApproval } from '../../../../../shared/native-chat/input/native-chat-interactive-prompt'
 import { NativeChatPromptCollapseToggle } from './NativeChatPromptCollapse'
 import { useNativeChatPromptCardFocus } from './use-native-chat-prompt-card-focus'
+import { useNativeChatApprovalDetailClamp } from './use-native-chat-approval-detail-clamp'
 import { useNativeChatDockRefit } from '../pane/dock/use-native-chat-dock-fit'
 import { NativeChatUrlTarget, openUrlRequestPage } from './NativeChatUrlRequest'
 
@@ -89,23 +90,8 @@ export function NativeChatApprovalCard({
   // off a terminal screen keep the full card.
   const quiet = !parsedFromTerminal && url === null && !isPlanApprovalSubject(approval.subject)
   const [detailOpen, setDetailOpen] = useState(false)
-  const [detailClamped, setDetailClamped] = useState(false)
   const detailRef = useRef<HTMLDivElement>(null)
-  useLayoutEffect(() => {
-    const node = detailRef.current
-    if (!node || detailOpen) {
-      return undefined
-    }
-    const measure = (): void => setDetailClamped(node.scrollHeight > node.clientHeight + 1)
-    measure()
-    // A narrower pane can wrap a short command past the clamp.
-    if (typeof ResizeObserver === 'undefined') {
-      return undefined
-    }
-    const observer = new ResizeObserver(measure)
-    observer.observe(node)
-    return () => observer.disconnect()
-  }, [approval.detail, detailOpen])
+  const detailClamped = useNativeChatApprovalDetailClamp(detailRef, approval.detail, detailOpen)
   const quietDetail = quiet ? (approval.detail ?? null) : null
   const showsDetailToggle =
     quietDetail !== null &&
