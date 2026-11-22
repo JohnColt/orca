@@ -153,6 +153,10 @@ export class AgentAwakeService {
     }
   }
 
+  getMode(): ComputerAwakeMode {
+    return this.mode
+  }
+
   getStatus(): ComputerAwakeStatus {
     const workingAgentCount = this.getEligibleRunningStatusCount()
     return {

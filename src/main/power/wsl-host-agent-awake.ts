@@ -8,6 +8,10 @@ type HostStream = { close: () => void }
 export type WslHostAgentAwakeDeps = {
   listHosts: () => readonly HostConnection[]
   onHostsChanged: (listener: () => void) => () => void
+  /** Whether keep-awake counts host agents right now (Auto). While false no stream is opened. */
+  isEnabled: () => boolean
+  /** May fire for unrelated changes too; the watcher compares `isEnabled()` itself. */
+  onEnabledChanged: (listener: () => void) => () => void
   /** Opens the host's session-tabs inventory stream; `onEnd` fires once when it can carry no more.
    *  'unsupported' means this host must not be watched (no longer a WSL host, or disconnected by hand).
    *  A rejection is a failure to retry, never a verdict on the host. */
@@ -42,16 +46,27 @@ export class WslHostAgentAwake {
   private readonly receiptsByEnvironment = new Map<string, Map<string, PaneReceipt>>()
   private readonly reported = new Map<string, string>()
   private readonly stopListening: () => void
+  private readonly stopListeningForEnabled: () => void
+  private enabled: boolean
   private disposed = false
 
   constructor(private readonly deps: WslHostAgentAwakeDeps) {
+    this.enabled = deps.isEnabled()
     this.stopListening = deps.onHostsChanged(() => this.reconcile())
+    this.stopListeningForEnabled = deps.onEnabledChanged(() => {
+      const enabled = this.deps.isEnabled()
+      if (enabled !== this.enabled) {
+        this.enabled = enabled
+        this.reconcile()
+      }
+    })
     this.reconcile()
   }
 
   dispose(): void {
     this.disposed = true
     this.stopListening()
+    this.stopListeningForEnabled()
     for (const environmentId of this.watches.keys()) {
       this.stop(environmentId)
     }
@@ -68,8 +83,11 @@ export class WslHostAgentAwake {
         this.receiptsByEnvironment.delete(environmentId)
       }
     }
+    // Why gate here: with keep-awake not counting agents, a per-host stream and its decoding buy nothing.
     const ready = new Set(
-      hosts.filter((host) => host.state === 'ready').map((host) => host.environmentId)
+      this.enabled
+        ? hosts.filter((host) => host.state === 'ready').map((host) => host.environmentId)
+        : []
     )
     for (const environmentId of this.watches.keys()) {
       if (!ready.has(environmentId)) {

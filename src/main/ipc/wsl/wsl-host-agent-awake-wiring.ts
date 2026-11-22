@@ -100,6 +100,9 @@ export function startWslHostAgentAwake(service: AgentAwakeService): () => void {
   const watcher = new WslHostAgentAwake({
     listHosts: () => getWslHostService()?.getStatuses() ?? [],
     onHostsChanged: onWslHostStatusesChanged,
+    // Only Auto counts agents: Off never blocks sleep and On always does.
+    isEnabled: () => service.getMode() === 'auto',
+    onEnabledChanged: (listener) => service.subscribe(listener),
     openStream: createQuietWslHostStreamOpener(),
     report: (environmentId, statuses) => service.setWslHostStatuses(environmentId, statuses),
     now: Date.now
