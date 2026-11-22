@@ -23,30 +23,29 @@ function bannerAt(state: WorkerAutoCloseState, nowIso: string): React.JSX.Elemen
 afterEach(cleanup)
 
 describe('worker auto-close banner live region', () => {
-  it('announces the running title from a single status region', () => {
+  it('mounts one empty status node inside a banner that has no role of its own', () => {
     const { container } = render(bannerAt(RUNNING, '2026-11-17T12:00:00.000Z'))
 
     const [status, ...others] = screen.getAllByRole('status')
     expect(others).toHaveLength(0)
-    expect(status.textContent).toBeTruthy()
-    expect(container.querySelector('p')?.textContent).toContain(status.textContent)
+    expect(status.textContent).toBe('')
+    expect(status.className).toContain('sr-only')
+    expect(container.firstElementChild?.getAttribute('role')).toBeNull()
   })
 
-  it('keeps one status node from running to finished, then holds it still while the countdown ticks', () => {
+  it('fills the same node on finish, time-free, and holds it still while the countdown ticks', () => {
     const { rerender } = render(bannerAt(RUNNING, '2026-11-17T12:00:00.000Z'))
     const status = screen.getByRole('status')
-    const runningText = status.textContent
 
     rerender(bannerAt(FINISHED, '2026-11-17T12:00:18.000Z'))
     expect(screen.getByText(/1:42/)).toBeTruthy()
+    // A re-mounted, pre-filled region may not be announced; it must be the node that mounted empty.
     expect(screen.getByRole('status')).toBe(status)
-    const finishedText = status.textContent
-    expect(finishedText).not.toBe(runningText)
+    expect(status.textContent).toBe('Orchestration worker finished · Closes soon')
 
     rerender(bannerAt(FINISHED, '2026-11-17T12:00:19.000Z'))
     expect(screen.getByText(/1:41/)).toBeTruthy()
     expect(screen.getByRole('status')).toBe(status)
-    expect(status.textContent).toBe(finishedText)
-    expect(finishedText).not.toMatch(/1:4\d/)
+    expect(status.textContent).toBe('Orchestration worker finished · Closes soon')
   })
 })

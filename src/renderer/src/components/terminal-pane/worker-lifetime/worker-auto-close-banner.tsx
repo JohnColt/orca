@@ -30,11 +30,11 @@ export function workerAutoCloseBannerProps(
           { countdown: formatWorkerAutoCloseCountdown(state.closesAt, nowMs) }
         )
   return {
-    // Why in both phases: one live node that persists from mount is announced reliably when its text
-    // changes; the ticking countdown stays outside it.
+    // Why empty while running: one live node that mounts empty is announced reliably when finishing
+    // fills it; a pre-filled or re-mounted region may be skipped. The ticking countdown stays outside it.
     announcement:
       state.closesAt === null
-        ? title
+        ? ''
         : t(
             'components.orchestration.workerAutoClose.bannerFinishedStatus',
             'Orchestration worker finished · Closes soon'

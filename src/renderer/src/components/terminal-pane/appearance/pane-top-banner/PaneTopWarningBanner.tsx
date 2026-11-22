@@ -81,7 +81,7 @@ const TONE_CLASSES: Record<PaneTopBannerTone, { stripClass: string; iconClass: s
 
 export type PaneTopBannerProps = {
   title: string
-  /** Moves the live region to one hidden node that announces this; pass it in every phase so the node persists. */
+  /** Moves the live region to one hidden node that announces this; pass it (empty until there is news) in every phase so the node persists. */
   announcement?: string
   body?: React.ReactNode
   tone?: PaneTopBannerTone
