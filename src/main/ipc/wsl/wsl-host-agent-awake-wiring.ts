@@ -97,7 +97,7 @@ export function createQuietWslHostStreamOpener(
 }
 
 /** Only Auto counts agents: Off never blocks sleep and On always does, so neither needs a stream. */
-export function keepAwakeCountsAgentsGate(
+function keepAwakeCountsAgentsGate(
   service: Pick<AgentAwakeService, 'getMode' | 'subscribe'>
 ): Pick<WslHostAgentAwakeDeps, 'isEnabled' | 'onEnabledChanged'> {
   return {
