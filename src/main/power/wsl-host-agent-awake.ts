@@ -33,6 +33,9 @@ type HostWatch = {
   worktrees: Map<string, Map<string, PaneReceipt>>
   retryTimer: ReturnType<typeof setTimeout> | null
   retryAttempt: number
+  /** Opened because keep-awake just turned on: its first inventory counts rows already working,
+   *  since agents that worked while it was off are live here, not restored. */
+  countFirstSnapshot: boolean
 }
 
 // Why not sooner: right after orcad exits the host may still read ready until its supervisor verifies.
@@ -57,7 +60,7 @@ export class WslHostAgentAwake {
       const enabled = this.deps.isEnabled()
       if (enabled !== this.enabled) {
         this.enabled = enabled
-        this.reconcile()
+        this.reconcile(enabled)
       }
     })
     this.reconcile()
@@ -72,7 +75,7 @@ export class WslHostAgentAwake {
     }
   }
 
-  private reconcile(): void {
+  private reconcile(enabling = false): void {
     if (this.disposed) {
       return
     }
@@ -100,7 +103,8 @@ export class WslHostAgentAwake {
           stream: null,
           worktrees: new Map(),
           retryTimer: null,
-          retryAttempt: 0
+          retryAttempt: 0,
+          countFirstSnapshot: enabling
         }
         this.watches.set(environmentId, watch)
         this.open(environmentId, watch)
@@ -186,8 +190,10 @@ export class WslHostAgentAwake {
     }
     const receipts = this.receiptsByEnvironment.get(environmentId)
     if (frame.type === 'snapshots' && Array.isArray(frame.snapshots)) {
-      // Why: rows already working when this app first sees the host are hydrated, not observed.
-      const hydrating = receipts === undefined
+      // Why: rows already working when this app first sees the host are hydrated, not observed,
+      // unless keep-awake was just turned on: then the agents are live and must count at once.
+      const hydrating = receipts === undefined && !watch.countFirstSnapshot
+      watch.countFirstSnapshot = false
       watch.worktrees.clear()
       for (const snapshot of frame.snapshots) {
         this.applySnapshot(watch, receipts, snapshot, hydrating)
