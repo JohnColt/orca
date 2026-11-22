@@ -84,7 +84,8 @@ export class PtyBindingPersistenceOperations {
       publishPtyBindingSession(runtime, resolved, session)
       markPtyBindingSessionDirty(runtime, resolved)
     }
-    return runtime.runDurableMutation(() => {
+    let retiredGeneration: number | undefined
+    const retiredBinding = await runtime.runDurableMutation(() => {
       const session = sessions.getWorkspaceSession(resolved)
       if (
         accountRestartRetirementIsRefused(
@@ -119,10 +120,7 @@ export class PtyBindingPersistenceOperations {
       // Publish directly: renderer snapshot repair would revive the retired binding.
       publish(retired)
       bumpPtyBindingGeneration(runtime, resolved, binding.leafId)
-      const generation = ptyBindingGenerationOf(runtime, resolved, binding.leafId)
-      if (generation !== undefined) {
-        fence?.onRetired?.(generation)
-      }
+      retiredGeneration = ptyBindingGenerationOf(runtime, resolved, binding.leafId)
       return {
         value: true,
         writtenHostIds: [resolved],
@@ -139,6 +137,10 @@ export class PtyBindingPersistenceOperations {
         }
       }
     })
+    if (retiredGeneration !== undefined) {
+      fence?.onRetired?.(retiredGeneration)
+    }
+    return retiredBinding
   }
 
   async persistPtyBinding(

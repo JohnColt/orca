@@ -1,4 +1,5 @@
 import { reconcileTrackedPtyBindingGenerations } from '../../loading-store/terminal-bindings/pty-binding-generations'
+import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/workspace-layout/layout-owner-switch'
 import type { TerminalTopologyCommitContext } from '../terminal-topology-commit'
 import {
   LOCAL_EXECUTION_HOST_ID,
@@ -89,7 +90,8 @@ export function publishTerminalTopologyPartition(
       context.generations,
       hostId,
       context.getSession(hostId),
-      session
+      session,
+      ORCA_LAYOUT_OWNER_IS_MAIN
     )
   }
   context.markDirty(assignWorkspaceSessionPartition(context.state, hostId, session))

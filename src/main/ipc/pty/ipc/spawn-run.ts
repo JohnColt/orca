@@ -36,11 +36,17 @@ export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, request: PtySpawnIpc
     throw new Error('invalid_account_restart')
   }
   if (condition) {
+    const expectedPtyId =
+      condition.expected.kind === 'endpoint' ? condition.expected.ptyId : undefined
+    if (
+      args.attachOnlyView === true ||
+      (args.replacesPtyId !== undefined && args.replacesPtyId !== expectedPtyId)
+    ) {
+      throw new Error('invalid_account_restart')
+    }
+    args.replacesPtyId = expectedPtyId
     args.launchToken = condition.attemptId
     args.env = { ...args.env, ORCA_AGENT_LAUNCH_TOKEN: condition.attemptId }
-  }
-  if (condition?.expected.kind === 'endpoint') {
-    args.replacesPtyId = condition.expected.ptyId
   }
   const ctx = createPtyIpcSpawnState(deps, args)
   if (condition) {
@@ -131,7 +137,7 @@ export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, request: PtySpawnIpc
               ctx.accountRestartOperation.stop = 'unknown'
             }
             ctx.replacedPaneOwner = await stopReplacedPaneOwner(deps, {
-              requireProof: Boolean(ctx.accountRestartOperation),
+              expectedIncarnationId: ctx.accountRestartOperation?.original?.incarnationId,
               replacesPtyId: args.replacesPtyId!,
               paneKey: resolveEarlyPaneKey(args),
               worktreeId: args.worktreeId,

@@ -1,5 +1,39 @@
 import type { IPtyProvider } from '../../../providers/pty/provider-contract'
+import { PtyExitProof } from '../../../pty/process-retirement/pty-exit-proof'
 import { ptyIncarnationById } from './ownership-state'
+
+export async function shutdownPtyIncarnation(
+  provider: IPtyProvider,
+  id: string,
+  expectedIncarnationId: string,
+  keepHistory: boolean
+): Promise<PtyExitProof> {
+  const currentIncarnation = ptyIncarnationById.get(id)
+  if (currentIncarnation && currentIncarnation !== expectedIncarnationId) {
+    throw new Error('terminal_pane_owner_changed')
+  }
+  if (!provider.supportsFencedTermination?.(id) || !provider.killFenced) {
+    throw new Error('terminal_replaced_pty_stop_unverified')
+  }
+  const result = await provider.killFenced({
+    id,
+    expectedIncarnationId,
+    requireNoAgentOwner: false,
+    requireUnattached: false,
+    keepHistory
+  })
+  if (result.outcome === 'refused') {
+    throw new Error(
+      result.reason === 'replaced'
+        ? 'terminal_pane_owner_changed'
+        : 'terminal_replaced_pty_stop_unverified'
+    )
+  }
+  return PtyExitProof.from(
+    result.outcome === 'ended' ? 'stop-confirmed' : 'absent',
+    expectedIncarnationId
+  )
+}
 
 export async function shutdownProviderAndDetectExit(
   provider: IPtyProvider,

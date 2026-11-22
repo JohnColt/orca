@@ -1,9 +1,12 @@
 /** Bind configured launches to their environment and PTY with the same token. */
 export function agentLaunchTokenFor(
-  launch: { launchConfig?: unknown; launchToken?: string },
+  launch: { launchConfig?: unknown; launchToken?: string; accountRestart?: { attemptId: string } },
   mint: () => string
 ): string | undefined {
-  return launch.launchConfig ? (launch.launchToken ?? mint()) : undefined
+  return (
+    launch.accountRestart?.attemptId ??
+    (launch.launchConfig ? (launch.launchToken ?? mint()) : undefined)
+  )
 }
 
 export function withAgentLaunchToken(

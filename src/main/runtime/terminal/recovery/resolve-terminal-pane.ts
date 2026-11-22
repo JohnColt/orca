@@ -1,5 +1,5 @@
 import { resolveTerminalPaneWorktreeId } from '../identity/runtime-terminal-pane-identity'
-import { resolveAccountRestartPane, boundLaunchToken } from './account-restart-pane-snapshot'
+import { resolveAccountRestartPane } from './account-restart-pane-snapshot'
 import { terminalLaunchFacts } from '../../../../shared/agent-session/lifecycle/agent-session-resume'
 import { boundTerminalLaunchFacts } from '../launch/terminal-launch-result'
 import type { OrcaRuntimeWithCreateTerminal } from '../launch/terminal-create'
@@ -55,20 +55,16 @@ export abstract class OrcaRuntimeWithResolveTerminalPane extends OrcaRuntimeWith
     opts?: { cursor?: number; limit?: number }
   ): RuntimeTerminalRead
 
-  resolveTerminalPane(
+  resolveAccountRestartTerminalPane(
     paneKey: string,
-    expectedWorktreeId?: string,
-    accountRestart = false
-  ): RuntimeTerminalResolvePane {
-    if (accountRestart) {
-      return resolveAccountRestartPane(
-        this.store,
-        paneKey,
-        expectedWorktreeId,
-        this.getWorkspaceSessionHostIdForTab.bind(this),
-        () => this.resolveTerminalPane(paneKey, expectedWorktreeId)
-      )
-    }
+    worktreeId: string | undefined
+  ): Promise<RuntimeTerminalResolvePane> {
+    return resolveAccountRestartPane(this, this.store, paneKey, worktreeId, () =>
+      this.getPtyRecordForPaneKey(paneKey)
+    )
+  }
+
+  resolveTerminalPane(paneKey: string, expectedWorktreeId?: string): RuntimeTerminalResolvePane {
     // Main resolves the handle; clients know only the pane key.
     const handle = this.getTerminalHandleForPaneKey(paneKey)
     if (!handle) {
@@ -100,7 +96,6 @@ export abstract class OrcaRuntimeWithResolveTerminalPane extends OrcaRuntimeWith
       leafId: parsed?.leafId ?? record?.leafId ?? '',
       ptyId: record?.ptyId ?? null,
       connected: pty?.connected === true,
-      ...boundLaunchToken(pty, record?.ptyId),
       ...boundTerminalLaunchFacts(pty, record?.ptyId),
       ...(worktreeId ? { worktreeId } : {}),
       ...this.getPtyExecutionHostMetadata(record?.ptyId ?? pty?.ptyId ?? null)

@@ -55,7 +55,9 @@ export async function spawnPtyFromRuntimeController(
             let stopped = false
             try {
               stopped = await stopAndWaitPtyFromRuntimeController(deps, original.ptyId, {
-                keepHistory: true
+                keepHistory: true,
+                expectedIncarnationId: original.incarnationId,
+                signal: args.signal
               })
               if (!stopped) {
                 throw new Error('terminal_replaced_pty_stop_unverified')

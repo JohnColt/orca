@@ -73,7 +73,7 @@ export class DaemonPtyAdapter extends DaemonPtyPreservedHostLoss implements IPty
           (currentIncarnationId === undefined || currentIncarnationId === expectedIncarnationId)
         ) {
           // Exit may clear the incarnation first; hold the spawn lock through removal to protect replacement sessions.
-          await this.completeShutdownWithHistoryLock(id, {})
+          await this.completeShutdownWithHistoryLock(id, { keepHistory: request.keepHistory })
         }
         return result
       })

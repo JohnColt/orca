@@ -1,9 +1,6 @@
 import type { PtySpawnOperationState, PtySpawnExecutionFacts } from '../spawn/spawn-operation-state'
 import { readTerminalSpawnDeferral } from '../../../../shared/terminal/pty/admission/spawn-admission-contract'
-import {
-  LOCAL_EXECUTION_HOST_ID,
-  toSshExecutionHostId
-} from '../../../../shared/execution-host/execution-host'
+import { getConnectionExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import { makePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import { ptyBindingIsRefused } from '../../../persistence/loading-store/terminal-bindings/pty-binding-refusals'
 import { resolveStablePaneOwner } from './stable-owner'
@@ -48,7 +45,7 @@ export function accountRestartSnapshot(
   pane: AccountRestartCondition['pane'],
   connectionId?: string | null
 ): AccountRestartSnapshot {
-  const hostId = connectionId ? toSshExecutionHostId(connectionId) : LOCAL_EXECUTION_HOST_ID
+  const hostId = getConnectionExecutionHostId(connectionId)
   const session = store.getWorkspaceSession(hostId)
   const key = makePaneKey(pane.tabId, pane.leafId)
   if (
@@ -67,7 +64,7 @@ export function accountRestartSnapshot(
     throw new Error('terminal_pane_owner_changed')
   }
   const owner = resolveStablePaneOwner(runtime, store, key, pane.worktreeId, connectionId)
-  if (owner && !owner.incarnationId) {
+  if (owner && (!owner.incarnationId || owner.persistedIncarnationId !== owner.incarnationId)) {
     throw new Error('terminal_pane_owner_unverified')
   }
   return {

@@ -1,12 +1,21 @@
 import { expect, it, vi } from 'vitest'
 import { toSshExecutionHostId } from '../../../../shared/execution-host/execution-host'
+import { makePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import { savePtySpawnPaneBinding } from '../spawn/spawn-commit-binding'
+import { runPtySpawn } from '../spawn/spawn-operation'
+import { createRuntimePtySpawnState } from '../runtime/spawn-state'
+import { makeRuntimePtySpawnTestDeps } from '../runtime/spawn-preflight-test-deps-fixture'
+import { restorePtyIncarnation } from '../provider/ownership-state'
+import { LocalPtyProvider } from '../../../providers/local-pty/local-pty-provider'
+import { accountRestartSnapshot, beginAccountRestartOperation } from './account-restart-owner'
+import { resolveEarlyPaneSpawnReservationKey } from './spawn-pane-coordinates'
+import { clearPaneSpawnReservation, reservePaneSpawn } from './spawn-reservation'
 import {
   fixture,
   admitRuntimeSpawnPane
 } from '../../../persistence/loading-store/profile-writing/profile-state-delayed-authority-fixture'
 import { TEST_LEAF_1, TEST_LEAF_2 } from '../../../persistence/persistence-session-fixtures'
-import { swapReplacedPaneBinding } from './pane-owner-replacement'
+import { releaseStoppedPaneBinding, swapReplacedPaneBinding } from './pane-owner-replacement'
 import type { ReplacedPaneOwner } from './replaced-pane-owner'
 
 vi.mock('../../../telemetry/client', () => ({ track: vi.fn() }))
@@ -26,6 +35,107 @@ function replaced(ptyId: string): ReplacedPaneOwner {
 }
 
 type FixtureStore = Awaited<ReturnType<typeof fixture>>['store']
+
+async function bindRestartPane(store: FixtureStore, ptyId: string, incarnationId: string) {
+  const pane = { worktreeId, tabId, leafId: TEST_LEAF_1 }
+  await store.persistPtyBinding({ ...pane, ptyId, incarnationId })
+  return {
+    ...pane,
+    tabCreatedAt: store
+      .getWorkspaceSession()
+      .tabsByWorktree[worktreeId].find((tab) => tab.id === tabId)!.createdAt
+  }
+}
+
+function beginHostRestart(
+  store: FixtureStore,
+  pane: Awaited<ReturnType<typeof bindRestartPane>>,
+  ptyId: string,
+  incarnationId: string
+) {
+  const { hostEpoch, bindingGeneration } = accountRestartSnapshot(store, undefined, pane)
+  return beginAccountRestartOperation({
+    requestId: 'request-1',
+    attemptId: 'attempt-1',
+    hostEpoch,
+    pane,
+    expected: { kind: 'endpoint', ptyId, incarnationId, bindingGeneration }
+  })
+}
+
+it('refuses to restart a live incarnation mismatched with the durable pane binding', async () => {
+  const { store } = await fixture()
+  const ptyId = 'recycled-account-restart-owner'
+  const pane = await bindRestartPane(store, ptyId, '11111111-1111-4111-8111-111111111111')
+  restorePtyIncarnation(ptyId, '22222222-2222-4222-8222-222222222222')
+
+  expect(() => accountRestartSnapshot(store, undefined, pane)).toThrow(
+    'terminal_pane_owner_unverified'
+  )
+})
+
+it('leaves the original running when the request aborts behind a pane reservation', async () => {
+  const { store } = await fixture()
+  const pane = await bindRestartPane(store, 'waiting-owner', 'old-incarnation')
+  const abort = new AbortController()
+  const args = { ...pane, cols: 80, rows: 24, signal: abort.signal }
+  const state = createRuntimePtySpawnState({ ...makeRuntimePtySpawnTestDeps(), store }, args)
+  state.accountRestartOperation = beginHostRestart(store, pane, 'waiting-owner', 'old-incarnation')
+  const key = resolveEarlyPaneSpawnReservationKey(args)!
+  const held = reservePaneSpawn(key)
+  const restart = runPtySpawn({
+    state,
+    facts: () => ({ paneKey: makePaneKey(tabId, TEST_LEAF_1), sessionId: undefined }),
+    replace: async () => {
+      throw new Error('replacement dispatched')
+    },
+    prepare: async () => {
+      throw new Error('spawn prepared')
+    },
+    commit: async () => {
+      throw new Error('spawn committed')
+    }
+  })
+  abort.abort()
+  clearPaneSpawnReservation(key, held)
+  held.resolve({ id: 'waiting-owner' })
+
+  await expect(restart).rejects.toThrow('client_disconnected')
+})
+
+it('clears the stopped binding after a rejected replacement write restores it', async () => {
+  const { store, authority } = await fixture()
+  const pane = await bindRestartPane(store, 'stopped-owner', 'old-incarnation')
+  const operation = beginHostRestart(store, pane, 'stopped-owner', 'old-incarnation')
+  operation.stop = 'confirmed-retired'
+  const stopped = replaced('stopped-owner')
+  const result = { id: 'rejected-replacement', incarnationId: 'new-incarnation' }
+  authority.failNextWrite()
+
+  await expect(
+    savePtySpawnPaneBinding(
+      {
+        accountRestartOperation: operation,
+        result,
+        provider: new LocalPtyProvider(),
+        replacedPaneOwner: stopped,
+        deps: {}
+      },
+      {
+        store,
+        binding: { ...pane, ptyId: result.id, incarnationId: result.incarnationId },
+        refusal: 'terminal_pane_owner_changed',
+        failureLog: 'rejected test replacement'
+      },
+      undefined
+    )
+  ).rejects.toMatchObject({ agentSessionOperationOutcome: 'unknown' })
+
+  await expect(releaseStoppedPaneBinding(store, stopped, operation)).resolves.toBe(true)
+  expect(
+    store.getWorkspaceSession().terminalLayoutsByTabId[tabId].ptyIdsByLeafId?.[TEST_LEAF_1]
+  ).toBeUndefined()
+})
 
 /** The binding swap must survive the renderer's own pre-connect clear, which strict fences refuse. */
 async function expectSwapAfterRendererClear(

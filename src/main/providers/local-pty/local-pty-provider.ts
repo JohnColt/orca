@@ -4,6 +4,10 @@ import type * as pty from 'node-pty'
 import type { IPtyProvider, PtySpawnOptions } from '../pty/provider-contract'
 import type { PtyProcessInfo } from '../pty/process-info'
 import type { PtySpawnResult } from '../pty/spawn-result'
+import type {
+  PtyFencedTerminationOutcome,
+  PtyFencedTerminationRequest
+} from '../../../shared/terminal/pty/lifecycle/pty-fenced-termination'
 import {
   WRITE_ACCEPTED,
   writeRefused,
@@ -109,6 +113,38 @@ export class LocalPtyProvider implements IPtyProvider {
 
   shutdown(id: string, opts: { immediate?: boolean; keepHistory?: boolean }): Promise<void> {
     return shutdownLocalPty(id, opts)
+  }
+
+  supportsFencedTermination(): boolean {
+    return true
+  }
+
+  async killFenced({
+    id,
+    expectedIncarnationId,
+    requireNoAgentOwner,
+    requireUnattached,
+    keepHistory,
+    switchCondition
+  }: PtyFencedTerminationRequest): Promise<PtyFencedTerminationOutcome> {
+    if (!ptyProcesses.has(id)) {
+      return { outcome: 'already_exited' }
+    }
+    if (ptyIncarnations.get(id) !== expectedIncarnationId) {
+      return { outcome: 'refused', reason: 'replaced' }
+    }
+    if (requireUnattached) {
+      return { outcome: 'refused', reason: 'attached' }
+    }
+    if (requireNoAgentOwner || switchCondition) {
+      return { outcome: 'refused', reason: 'unsupported' }
+    }
+    try {
+      await shutdownLocalPty(id, { immediate: true, keepHistory })
+      return { outcome: 'ended' }
+    } catch {
+      return { outcome: 'refused', reason: 'unverifiable' }
+    }
   }
 
   sendSignal(id: string, signal: string): Promise<void> {

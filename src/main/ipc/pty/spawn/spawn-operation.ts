@@ -6,7 +6,7 @@ import {
 } from '../pane/account-restart-owner'
 import type { PaneSpawnOperation } from '../pane/pane-spawn-operation'
 import type { AdoptStablePaneArgs } from '../ipc/spawn-types'
-import { adoptedOutcome, type PtySpawnOutcome } from './spawn-outcome'
+import { adoptedOutcome, requireAcceptedSpawn, type PtySpawnOutcome } from './spawn-outcome'
 import type { PtySpawnOperationState, PtySpawnExecutionFacts } from './spawn-operation-state'
 import { beginPtySpawn, reportPtyPaneAdoption } from './spawn-begin'
 import { executePtySpawn } from './spawn-execute'
@@ -154,6 +154,9 @@ export async function runPtySpawn<State extends PtySpawnOperationState>(
       Object.assign(ctx.result, savedResumeResult(ctx.resumeAdmission))
     }
     const outcome = await adapter.commit()
+    if (ctx.accountRestartOperation) {
+      requireAcceptedSpawn(outcome)
+    }
     if (
       outcome.kind === 'committed' ||
       (outcome.kind === 'registration-exited' && adapter.drainsExitedStart)
@@ -255,6 +258,9 @@ export async function runPtySpawn<State extends PtySpawnOperationState>(
   }
   try {
     if (operation) {
+      if (args.signal?.aborted) {
+        throw new Error('client_disconnected')
+      }
       assertAccountRestartOwner(ctx.deps.store, ctx.deps.runtime, operation, args.connectionId)
     }
     if (adapter.replace) {

@@ -34,10 +34,14 @@ export async function savePtySpawnPaneBinding(
   { store, binding, absentOwner, refusal, failureLog }: PtySpawnPaneBinding,
   connectionId: string | null | undefined
 ): Promise<void> {
-  if (state.accountRestartOperation) {
+  const restart = state.accountRestartOperation
+  if (restart) {
     binding = {
       ...binding,
-      accountRestart: state.accountRestartOperation.condition,
+      accountRestart: restart.condition,
+      onAccountRestartRollback: (condition) => {
+        restart.condition = condition
+      },
       mayCreate: false,
       mayReviveRetiredSurface: false
     }

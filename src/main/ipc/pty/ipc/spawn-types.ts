@@ -138,5 +138,8 @@ export type PtySpawnIpcDeps = PtySpawnCodexResumeDeps & {
   trustedTerminalHandleEnv: Set<string>
   sendPtySpawnedToRenderer: (id: string) => void
   syncPtyBackgroundedDelivery: (id: string, caller: string) => void
-  stopReplacedPty: (id: string) => Promise<PtyRetirementEvidence | void>
+  stopReplacedPty: (
+    id: string,
+    expectedIncarnationId?: string
+  ) => Promise<PtyRetirementEvidence | void>
 }

@@ -15,10 +15,13 @@ export async function stopReplacedPaneOwner(
   deps: {
     runtime?: OrcaRuntimeService
     store?: Store
-    stopReplacedPty: (id: string) => Promise<PtyRetirementEvidence | void>
+    stopReplacedPty: (
+      id: string,
+      expectedIncarnationId?: string
+    ) => Promise<PtyRetirementEvidence | void>
   },
   args: {
-    requireProof?: boolean
+    expectedIncarnationId?: string
     replacesPtyId: string
     paneKey: string | null
     worktreeId: string | undefined
@@ -32,11 +35,17 @@ export async function stopReplacedPaneOwner(
     args.worktreeId,
     args.connectionId
   )
-  if (owner && owner.ptyId !== args.replacesPtyId) {
+  if (
+    (owner && owner.ptyId !== args.replacesPtyId) ||
+    (args.expectedIncarnationId && owner?.incarnationId !== args.expectedIncarnationId)
+  ) {
     throw new Error('terminal_pane_owner_changed')
   }
-  const evidence = await deps.stopReplacedPty(args.replacesPtyId)
-  if (args.requireProof && !(evidence instanceof PtyExitProof)) {
+  const evidence = await deps.stopReplacedPty(args.replacesPtyId, args.expectedIncarnationId)
+  if (
+    args.expectedIncarnationId &&
+    (!(evidence instanceof PtyExitProof) || evidence.incarnationId !== args.expectedIncarnationId)
+  ) {
     throw new Error('terminal_replaced_pty_stop_unverified')
   }
   const pane = args.paneKey ? parsePaneKey(args.paneKey) : null

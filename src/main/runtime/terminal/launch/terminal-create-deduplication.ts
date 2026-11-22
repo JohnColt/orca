@@ -9,6 +9,7 @@ import type { RuntimeTerminalCreate } from '../../../../shared/terminal/runtime/
 import { WORKTREE_CREATE_RESULT_TTL_MS } from '../../workspaces/creation/worktree-create-idempotency'
 import { deriveRemoteRuntimeTerminalCreateHandle } from '../identity/remote-runtime-terminal-create-identity'
 import { withTimeoutResult } from '../../../../shared/concurrency/promise-timeout-fallback'
+import { ACCOUNT_RESTART_OUTCOME_UNKNOWN } from '../../../../shared/terminal/pty/lifecycle/account-restart-contract'
 import { PTY_CONTROLLER_LIST_TIMEOUT_MS } from '../lifecycle/pty-controller-inventory-budget'
 import { ownerSurfacing } from './terminal-presentation'
 import {
@@ -53,6 +54,10 @@ export abstract class OrcaRuntimeWithTerminalCreateDeduplication extends OrcaRun
     ) => Promise<RuntimeTerminalCreate>,
     options: { wslUserAct?: boolean; accountRestart?: true } = {}
   ): Promise<RuntimeTerminalCreate> {
+    // Restart reconciliation requires the pane's owner snapshot, not handle inventory.
+    if (options.accountRestart && reconcileExisting) {
+      throw new Error(ACCOUNT_RESTART_OUTCOME_UNKNOWN)
+    }
     if (!clientMutationId || !worktreeSelector) {
       if (reconcileExisting) {
         throw new Error('runtime_unavailable')
@@ -84,9 +89,6 @@ export abstract class OrcaRuntimeWithTerminalCreateDeduplication extends OrcaRun
           )
           if (adopted) {
             return adopted
-          }
-          if (options.accountRestart) {
-            throw new Error('terminal_account_restart_outcome_unknown')
           }
         }
         return await run(canonicalWorktreeSelector, preAllocatedHandle)

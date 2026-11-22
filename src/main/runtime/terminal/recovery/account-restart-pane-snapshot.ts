@@ -1,31 +1,42 @@
 import type { RuntimePtyWorktreeRecord } from '../records/runtime-terminal-state-records'
 import { parsePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
 import { layoutContainsLeafId } from '../../../../shared/workspace-layout/terminal-topology/terminal-pane-tree'
-import type { ExecutionHostId } from '../../../../shared/execution-host/execution-host'
+import { getConnectionExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import type { RuntimeTerminalResolvePane } from '../../../../shared/terminal/runtime/runtime-terminal-contracts'
 import type { RuntimeStore } from '../../construction/runtime-store-contract'
+import type { OrcaRuntimeWithResolveTerminalPane } from './resolve-terminal-pane'
 
-export function resolveAccountRestartPane(
+export async function resolveAccountRestartPane(
+  runtime: Pick<
+    OrcaRuntimeWithResolveTerminalPane,
+    'resolveTerminalWorkspaceLaunchScope' | 'resolveTerminalPane'
+  >,
   store: RuntimeStore | null | undefined,
   paneKey: string,
   worktreeId: string | undefined,
-  hostIdForTab: (worktreeId: string, tabId: string) => ExecutionHostId,
-  resolve: () => RuntimeTerminalResolvePane
-): RuntimeTerminalResolvePane {
+  getPtyRecord: () => RuntimePtyWorktreeRecord | null | undefined
+): Promise<RuntimeTerminalResolvePane> {
   const pane = parsePaneKey(paneKey)
   if (!pane || !worktreeId || !store?.trackPtyBindingGeneration || !store.getPtyBindingEpoch) {
     throw new Error('terminal_pane_owner_unverified')
   }
-  const hostId = hostIdForTab(worktreeId, pane.tabId)
+  const workspace = await runtime.resolveTerminalWorkspaceLaunchScope(
+    `id:${worktreeId}`,
+    undefined,
+    {
+      readOnly: true
+    }
+  )
+  const hostId = getConnectionExecutionHostId(workspace.connectionId)
   const session = store.getWorkspaceSession?.(hostId)
-  const tab = session?.tabsByWorktree[worktreeId]?.find((t) => t.id === pane.tabId)
+  const tab = session?.tabsByWorktree[workspace.id]?.find((t) => t.id === pane.tabId)
   const layout = session?.terminalLayoutsByTabId[pane.tabId]
   if (!tab || !layout || !layoutContainsLeafId(layout.root, pane.leafId)) {
     throw new Error('terminal_pane_owner_changed')
   }
   let resolved: RuntimeTerminalResolvePane | null = null
   try {
-    resolved = resolve()
+    resolved = runtime.resolveTerminalPane(paneKey, workspace.id)
   } catch (error) {
     if (!(error instanceof Error && error.message === 'terminal_not_found')) {
       throw error
@@ -35,10 +46,14 @@ export function resolveAccountRestartPane(
   if (resolved?.connected && resolved.ptyId !== bound) {
     throw new Error('terminal_pane_owner_unverified')
   }
-  const incarnationId =
-    (resolved?.ptyId === bound ? resolved?.incarnationId : undefined) ??
-    session?.terminalPtyIncarnationsByPaneKey?.[paneKey]
-  if (bound && !incarnationId) {
+  const incarnationId = session?.terminalPtyIncarnationsByPaneKey?.[paneKey]
+  if (
+    bound &&
+    (!incarnationId ||
+      (resolved?.ptyId === bound &&
+        resolved.incarnationId &&
+        resolved.incarnationId !== incarnationId))
+  ) {
     throw new Error('terminal_pane_owner_unverified')
   }
   return {
@@ -49,6 +64,7 @@ export function resolveAccountRestartPane(
       ptyId: null,
       connected: false
     }),
+    ...boundLaunchToken(getPtyRecord(), bound),
     accountRestart: {
       hostEpoch: store.getPtyBindingEpoch(),
       bindingGeneration: store.trackPtyBindingGeneration({ hostId, leafId: pane.leafId }),
@@ -58,7 +74,7 @@ export function resolveAccountRestartPane(
   }
 }
 
-export function boundLaunchToken(
+function boundLaunchToken(
   pty:
     | Pick<
         RuntimePtyWorktreeRecord,

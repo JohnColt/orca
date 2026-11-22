@@ -292,7 +292,8 @@ export function registerPtyHandlers(
     trustedTerminalHandleEnv: session.trustedTerminalHandleEnv,
     sendPtySpawnedToRenderer: session.sendPtySpawnedToRenderer,
     syncPtyBackgroundedDelivery: session.syncPtyBackgroundedDelivery,
-    stopReplacedPty: (id) => stopReplacedPanePty(killDeps, id)
+    stopReplacedPty: (id, expectedIncarnationId) =>
+      stopReplacedPanePty(killDeps, id, expectedIncarnationId)
   })
   installPtyWriteIpcHandlers({ mainWindow, runtime })
   installPtyResizeVisibilityIpc(session)

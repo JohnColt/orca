@@ -6,6 +6,7 @@ import type { TerminalPanePlacement } from '../../../../shared/workspace-layout/
 
 export type PersistPtyBindingArgs = {
   accountRestart?: AccountRestartCondition
+  onAccountRestartRollback?: (condition: AccountRestartCondition) => void
   worktreeId: string
   tabId: string
   leafId: string

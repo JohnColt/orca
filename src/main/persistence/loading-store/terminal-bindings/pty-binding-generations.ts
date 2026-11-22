@@ -1,7 +1,5 @@
 import type { WorkspaceSessionState } from '../../../../shared/workspace-session/workspace-session-state-types'
 import { collectLayoutLeafIdsInOrder } from '../../../../shared/workspace-layout/terminal-topology/terminal-pane-tree'
-// In-memory generations advance on bind, retirement or rollback, including same-ID respawns; moves/removals do not.
-
 import type { ExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/workspace-layout/layout-owner-switch'
 import type { StoreRuntimeState } from '../store-runtime-state'
@@ -61,10 +59,11 @@ export function reconcileTrackedPtyBindingGenerations(
   runtime: GenerationRuntime,
   hostId: ExecutionHostId,
   before: WorkspaceSessionState | undefined,
-  after: WorkspaceSessionState
+  after: WorkspaceSessionState,
+  includeUntrackedRebindings = false
 ): void {
   if (
-    runtime.ptyBindingGenerations.size === 0 ||
+    (!includeUntrackedRebindings && runtime.ptyBindingGenerations.size === 0) ||
     before?.terminalLayoutsByTabId === after.terminalLayoutsByTabId
   ) {
     return
@@ -86,7 +85,10 @@ export function reconcileTrackedPtyBindingGenerations(
       [next, after, now]
     ] as const) {
       for (const leafId of collectLayoutLeafIdsInOrder(layout?.root)) {
-        if (!runtime.ptyBindingGenerations.has(generationKey(hostId, leafId))) {
+        if (
+          !includeUntrackedRebindings &&
+          !runtime.ptyBindingGenerations.has(generationKey(hostId, leafId))
+        ) {
           continue
         }
         target.set(leafId, {
@@ -97,17 +99,19 @@ export function reconcileTrackedPtyBindingGenerations(
       }
     }
   }
-  for (const [leafId, old] of was) {
-    const next = now.get(leafId),
-      key = generationKey(hostId, leafId)
-    if (!next) {
-      runtime.ptyBindingGenerations.delete(key)
-    } else if (
-      old.tabId !== next.tabId ||
-      old.ptyId !== next.ptyId ||
-      old.incarnationId !== next.incarnationId
+  for (const [leafId, next] of now) {
+    const old = was.get(leafId)
+    const tracked = runtime.ptyBindingGenerations.has(generationKey(hostId, leafId))
+    if (
+      old?.ptyId !== next.ptyId ||
+      (tracked && old && (old.tabId !== next.tabId || old.incarnationId !== next.incarnationId))
     ) {
       bumpPtyBindingGeneration(runtime, hostId, leafId)
+    }
+  }
+  for (const leafId of was.keys()) {
+    if (!now.has(leafId)) {
+      runtime.ptyBindingGenerations.delete(generationKey(hostId, leafId))
     }
   }
 }
