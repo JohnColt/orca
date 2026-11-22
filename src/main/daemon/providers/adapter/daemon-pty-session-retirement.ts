@@ -8,6 +8,7 @@ import {
   FENCED_TERMINATION_PROTOCOL_VERSION
 } from '../../protocol/daemon-protocol-version'
 import { DaemonPtySessionControl } from './daemon-pty-session-control'
+import type { RevalidateFencedPtyRoute } from '../../../providers/pty/provider-contract'
 import { FinalCheckpointWaitExpiredError } from './daemon-pty-lifecycle-errors'
 import { readDaemonLiveSleepCwd } from './daemon-live-sleep-cwd'
 import { normalizeWslColdRestoreCwd } from '../wsl/wsl-cold-restore-cwd'
@@ -46,7 +47,8 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
 
   async killFenced(
     request: PtyFencedTerminationRequest,
-    authorize?: () => void
+    authorize?: () => void,
+    revalidateRoute?: RevalidateFencedPtyRoute
   ): Promise<PtyFencedTerminationOutcome> {
     if (!this.supportsFencedTermination(request.id)) {
       return { outcome: 'refused', reason: 'unsupported' }
@@ -60,18 +62,36 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
     }
     // Capture the checked identity before waiting on connection or lifecycle locks.
     const { id, expectedIncarnationId, requireNoAgentOwner, requireUnattached } = request
-    try {
+    const run = async (): Promise<PtyFencedTerminationOutcome> => {
+      let historyAdopted = !keepHistory
       if (keepHistory) {
         await this.ensureConnected()
-        await this.adoptListedSessionForSleep(id, undefined, expectedIncarnationId)
+        try {
+          await this.adoptListedSessionForSleep(id, undefined, expectedIncarnationId)
+          historyAdopted = true
+        } catch {
+          // Missing history preparation only permits a read-only exit proof.
+        }
       }
       return await this.withHistorySpawnLock(id, async () => {
         const incarnationBeforeKill = this.sessionIncarnations.get(id)
         await this.ensureConnected()
-        const preserve = keepHistory
-          ? await this.prepareHistoryForShutdown(id, { expectedIncarnationId })
-          : undefined
-        authorize?.()
+        const preserve =
+          keepHistory && historyAdopted
+            ? await this.prepareHistoryForShutdown(id, { expectedIncarnationId }).catch(
+                () => undefined
+              )
+            : undefined
+        const verifyExitOnly = keepHistory && !preserve
+        const route = revalidateRoute ? await revalidateRoute() : undefined
+        if (route === 'already_exited') {
+          authorize?.()
+          return { outcome: 'already_exited' }
+        }
+        route?.()
+        if (!verifyExitOnly) {
+          authorize?.()
+        }
         if (preserve) {
           this.fencedHistoryStops.set(id, { incarnationId: expectedIncarnationId, preserve })
         }
@@ -81,10 +101,17 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
             immediate: true,
             expectedIncarnationId,
             requireNoAgentOwner,
-            requireUnattached
+            requireUnattached,
+            ...(verifyExitOnly ? { verifyExitOnly: true as const } : {})
           })
-          if (!isPtyFencedTerminationOutcome(result)) {
+          if (
+            !isPtyFencedTerminationOutcome(result) ||
+            (verifyExitOnly && result.outcome === 'ended')
+          ) {
             return { outcome: 'refused', reason: 'unverifiable' }
+          }
+          if (verifyExitOnly && result.outcome === 'already_exited') {
+            authorize?.()
           }
           const currentIncarnationId = this.sessionIncarnations.get(id)
           if (
@@ -104,6 +131,9 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
           this.fencedHistoryStops.delete(id)
         }
       })
+    }
+    try {
+      return await (keepHistory ? this.trackKeepHistoryShutdown(run) : run())
     } catch {
       return { outcome: 'refused', reason: 'unverifiable' }
     }
@@ -147,7 +177,8 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
         try {
           const checkpointed = await this.checkpointSessions([id], {
             final: true,
-            teardown: true,
+            // A fenced checkpoint may still be refused; keep the running shell's scanner intact.
+            teardown: opts.expectedIncarnationId === undefined,
             expectedIncarnationId: opts.expectedIncarnationId
           })
           if (opts.expectedIncarnationId !== undefined && !checkpointed.has(id)) {

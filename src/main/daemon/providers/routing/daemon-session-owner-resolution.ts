@@ -114,9 +114,9 @@ export class DaemonSessionOwnerResolver<T extends IPtyProvider> {
     return resolution
   }
 
-  resolveTermination = async (sessionId: string, incarnationId: string) => {
+  resolveTermination = async (sessionId: string, incarnationId: string, refresh = false) => {
     const routed = this.providers.find((provider) => provider === this.routes.get(sessionId))
-    if (routed && this.routeIncarnations.get(sessionId) === incarnationId) {
+    if (!refresh && routed && this.routeIncarnations.get(sessionId) === incarnationId) {
       return { kind: 'owner' as const, provider: routed }
     }
     // Another session's cached inventory cannot prove this one exited.
@@ -131,6 +131,30 @@ export class DaemonSessionOwnerResolver<T extends IPtyProvider> {
       (id, provider, incarnationId) => this.setRoute(id, provider, incarnationId),
       incarnationId
     )
+  }
+
+  async revalidateTermination(
+    sessionId: string,
+    incarnationId: string,
+    provider: IPtyProvider
+  ): Promise<(() => void) | 'already_exited'> {
+    const resolved = await this.resolveTermination(sessionId, incarnationId, true)
+    if (resolved.kind === 'absent') {
+      return 'already_exited'
+    }
+    if (resolved.kind !== 'owner' || resolved.provider !== provider) {
+      throw new Error('terminal_pane_owner_unverified')
+    }
+    const epoch = this.epoch
+    return () => {
+      if (
+        this.epoch !== epoch ||
+        this.getVerifiedRoute(sessionId) !== provider ||
+        this.getRouteIncarnation(sessionId) !== incarnationId
+      ) {
+        throw new Error('terminal_pane_owner_unverified')
+      }
+    }
   }
 
   async discoverRoutes(): Promise<void> {

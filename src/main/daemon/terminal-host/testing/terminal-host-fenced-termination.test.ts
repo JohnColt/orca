@@ -59,6 +59,32 @@ function request(
 }
 
 describe('execution-side conditional teardown', () => {
+  it('refuses a fresh restart when another request owns its claim without detaching that viewer', async () => {
+    const ownerClient = streamClient()
+    const owner = await host.createOrAttach({
+      sessionId: 'winner',
+      cols: 80,
+      rows: 24,
+      streamClient: ownerClient,
+      agentSessionEnsure: { claim, surface }
+    })
+    const rejectedClient = streamClient()
+    await expect(
+      host.createOrAttach({
+        sessionId: 'losing-restart',
+        cols: 80,
+        rows: 24,
+        streamClient: rejectedClient,
+        requireFreshSession: true,
+        agentSessionEnsure: { claim, surface }
+      })
+    ).rejects.toThrow('agent_session_conflict')
+    handles[0]!._simulateExit(17)
+    expect(ownerClient.onExit.mock.calls[0]?.slice(0, 2)).toEqual([17, owner.incarnationId])
+    expect(rejectedClient.onExit).not.toHaveBeenCalled()
+    expect(handles).toHaveLength(1)
+  })
+
   it('refuses a same-ID replacement before touching the replacement process or attachments', async () => {
     const original = await create()
     handles[0]!._simulateExit(0)

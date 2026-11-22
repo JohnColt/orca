@@ -14,7 +14,14 @@ export async function resolveAccountRestartPane(
   store: RuntimeStore | null | undefined,
   paneKey: string,
   worktreeId: string | undefined,
-  getPtyRecord: () => RuntimePtyWorktreeRecord | null | undefined
+  getPtyRecord: () =>
+    | Pick<
+        RuntimePtyWorktreeRecord,
+        'ptyId' | 'incarnationId' | 'launchIncarnationId' | 'launchToken'
+      >
+    | null
+    | undefined,
+  restartAttemptId?: string
 ): Promise<RuntimeTerminalResolvePane> {
   const pane = parsePaneKey(paneKey)
   if (!pane || !worktreeId || !store?.trackPtyBindingGeneration || !store.getPtyBindingEpoch) {
@@ -56,39 +63,37 @@ export async function resolveAccountRestartPane(
   ) {
     throw new Error('terminal_pane_owner_unverified')
   }
+  const terminal: RuntimeTerminalResolvePane = resolved ?? {
+    handle: '',
+    tabId: pane.tabId,
+    leafId: pane.leafId,
+    ptyId: null,
+    connected: false
+  }
+  const { launchToken: _launchToken, ...publicTerminal } = terminal
+  const pty = restartAttemptId ? getPtyRecord() : null
+  const attempt =
+    pty?.ptyId === bound &&
+    pty?.incarnationId &&
+    pty.incarnationId === incarnationId &&
+    pty.launchIncarnationId === incarnationId &&
+    pty.launchToken
+      ? pty.launchToken === restartAttemptId
+        ? 'matching'
+        : 'different'
+      : undefined
   return {
-    ...(resolved ?? {
-      handle: '',
-      tabId: pane.tabId,
-      leafId: pane.leafId,
-      ptyId: null,
-      connected: false
-    }),
-    ...boundLaunchToken(getPtyRecord(), bound),
+    ...publicTerminal,
     accountRestart: {
       hostEpoch: store.getPtyBindingEpoch(),
-      bindingGeneration: store.trackPtyBindingGeneration({ hostId, leafId: pane.leafId }),
+      bindingGeneration: store.trackPtyBindingGeneration({
+        hostId,
+        tabId: pane.tabId,
+        leafId: pane.leafId
+      }),
       tabCreatedAt: tab.createdAt,
-      owner: bound && incarnationId ? { ptyId: bound, incarnationId } : null
+      owner: bound && incarnationId ? { ptyId: bound, incarnationId } : null,
+      ...(attempt ? { attempt } : {})
     }
   }
-}
-
-function boundLaunchToken(
-  pty:
-    | Pick<
-        RuntimePtyWorktreeRecord,
-        'ptyId' | 'incarnationId' | 'launchIncarnationId' | 'launchToken'
-      >
-    | null
-    | undefined,
-  boundPtyId: string | null | undefined
-): { launchToken?: string } {
-  return pty &&
-    pty.ptyId === boundPtyId &&
-    pty.incarnationId &&
-    pty.launchIncarnationId === pty.incarnationId &&
-    pty.launchToken
-    ? { launchToken: pty.launchToken }
-    : {}
 }

@@ -57,10 +57,16 @@ export abstract class OrcaRuntimeWithResolveTerminalPane extends OrcaRuntimeWith
 
   resolveAccountRestartTerminalPane(
     paneKey: string,
-    worktreeId: string | undefined
+    worktreeId: string | undefined,
+    restartAttemptId?: string
   ): Promise<RuntimeTerminalResolvePane> {
-    return resolveAccountRestartPane(this, this.store, paneKey, worktreeId, () =>
-      this.getPtyRecordForPaneKey(paneKey)
+    return resolveAccountRestartPane(
+      this,
+      this.store,
+      paneKey,
+      worktreeId,
+      () => this.getPtyRecordForPaneKey(paneKey),
+      restartAttemptId
     )
   }
 

@@ -69,7 +69,11 @@ export const TERMINAL_QUERY_METHODS = [
     params: TerminalResolvePane,
     handler: async (params, { runtime }) => ({
       terminal: params.accountRestart
-        ? await runtime.resolveAccountRestartTerminalPane(params.paneKey, params.worktreeId)
+        ? await runtime.resolveAccountRestartTerminalPane(
+            params.paneKey,
+            params.worktreeId,
+            params.restartAttemptId
+          )
         : runtime.resolveTerminalPane(params.paneKey, params.worktreeId)
     })
   }),

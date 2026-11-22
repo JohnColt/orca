@@ -76,6 +76,7 @@ type WriteSchedulingOperationsRuntime = Pick<
   | 'workspaceMetadataCursor'
   | 'ptyBindingGenerations'
   | 'ptyBindingGenerationSequence'
+  | 'ptyBindingTrackedTabsByHost'
   | 'layoutEditorViews'
   | 'state'
 >
@@ -116,12 +117,12 @@ export class WriteSchedulingOperations {
     }
   }
 
-  trackPtyBindingGeneration(pane: { hostId: ExecutionHostId; leafId: string }): number {
-    return trackPtyBindingGeneration(
-      this[writeSchedulingOperationsContext].runtime,
-      pane.hostId,
-      pane.leafId
-    )
+  trackPtyBindingGeneration(pane: {
+    hostId: ExecutionHostId
+    tabId: string
+    leafId: string
+  }): number {
+    return trackPtyBindingGeneration(this[writeSchedulingOperationsContext].runtime, pane)
   }
   getPtyBindingEpoch(): string {
     return this[writeSchedulingOperationsContext].runtime.workspaceMetadataCursor.epoch

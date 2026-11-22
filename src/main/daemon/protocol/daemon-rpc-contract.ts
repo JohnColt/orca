@@ -47,6 +47,7 @@ export type CreateOrAttachRequest = {
     launchAgent?: TuiAgent
     /** Rejects an absent session instead of interpreting mount uncertainty as create permission. */
     attachOnly?: boolean
+    requireFreshSession?: true
     /** Preserve the selected shell instead of defaulting to the daemon’s platform fallback. */
     shellOverride?: string
     terminalShellArgs?: string[]
@@ -129,6 +130,7 @@ export type KillRequest = {
     expectedIncarnationId?: string
     requireNoAgentOwner?: boolean
     requireUnattached?: boolean
+    verifyExitOnly?: true
   }
 }
 

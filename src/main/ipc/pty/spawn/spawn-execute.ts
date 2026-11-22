@@ -102,7 +102,9 @@ export async function executePtySpawn(
       validateDispatch()
       const result = attachOnlyView
         ? await attachViewWithoutOwner(ctx.provider, ctx.spawnOptions)
-        : await ctx.provider.spawn(ctx.spawnOptions)
+        : await ctx.provider.spawn(
+            restart ? { ...ctx.spawnOptions, requireFreshSession: true } : ctx.spawnOptions
+          )
       ctx.rejectedRegistrationCandidate = result
       if (
         restart &&
@@ -145,6 +147,7 @@ export async function executePtySpawn(
         ensured = await agentSessionOwners.ensure({
           claim: args.agentSessionEnsure.claim,
           surface: args.agentSessionEnsure.surface,
+          requireFresh: restart ? true : undefined,
           spawn: async () => {
             await chooseFresh()
             const refusal = resumeSpawnRefusal(ctx.resumeAdmission)

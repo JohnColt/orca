@@ -122,6 +122,7 @@ export class StoreRuntimeState {
   ptyBindingGenerationSequence = 0
   /** In-memory host/leaf binding generations. */
   readonly ptyBindingGenerations = new Map<string, number>()
+  readonly ptyBindingTrackedTabsByHost = new Map<ExecutionHostId, Map<string, Set<string>>>()
   /** In-memory editor views by partition; layout-owner builds only. */
   readonly layoutEditorViews = new Map<ExecutionHostId, PartitionEditorViews>()
   readonly stateWriteListeners = new Set<StateWriteListener>()

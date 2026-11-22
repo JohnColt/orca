@@ -4,6 +4,7 @@ import type { OrcaRuntimeService } from '../../runtime/orca-runtime'
 type SenderState = {
   connectionId: string
   sender: WebContents
+  document: AbortController
   subscriptions: Map<string, AbortController>
 }
 
@@ -17,6 +18,11 @@ export class DesktopRuntimeSenderLifecycle {
 
   connectionIdFor(sender: WebContents): string {
     return this.stateFor(sender).connectionId
+  }
+
+  unaryContextFor(sender: WebContents): { connectionId: string; signal: AbortSignal } {
+    const state = this.stateFor(sender)
+    return { connectionId: state.connectionId, signal: state.document.signal }
   }
 
   subscriptionsFor(sender: WebContents): Map<string, AbortController> {
@@ -39,6 +45,7 @@ export class DesktopRuntimeSenderLifecycle {
     const state: SenderState = {
       connectionId: this.mintConnectionId(sender.id),
       sender,
+      document: new AbortController(),
       subscriptions: new Map()
     }
     this.senders.set(sender.id, state)
@@ -54,11 +61,14 @@ export class DesktopRuntimeSenderLifecycle {
       return
     }
     const retiredConnectionId = state.connectionId
+    const retiredDocument = state.document
     if (destroyed) {
       this.senders.delete(state.sender.id)
     } else {
       state.connectionId = this.mintConnectionId(state.sender.id)
+      state.document = new AbortController()
     }
+    retiredDocument.abort()
     for (const controller of state.subscriptions.values()) {
       controller.abort()
     }

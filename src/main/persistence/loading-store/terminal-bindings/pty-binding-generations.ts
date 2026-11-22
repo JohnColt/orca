@@ -5,7 +5,7 @@ import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/workspace-layout/l
 import type { StoreRuntimeState } from '../store-runtime-state'
 
 export type GenerationRuntime = Pick<StoreRuntimeState, 'ptyBindingGenerations'> &
-  Partial<Pick<StoreRuntimeState, 'ptyBindingGenerationSequence'>>
+  Partial<Pick<StoreRuntimeState, 'ptyBindingGenerationSequence' | 'ptyBindingTrackedTabsByHost'>>
 
 const generationKey = (hostId: ExecutionHostId, leafId: string) => `${hostId}\0${leafId}`
 
@@ -41,9 +41,15 @@ export function ptyBindingGenerationOf(
 /** Account retries opt a current leaf into the existing fence in window-owned builds too. */
 export function trackPtyBindingGeneration(
   runtime: GenerationRuntime,
-  hostId: ExecutionHostId,
-  leafId: string
+  { hostId, tabId, leafId }: { hostId: ExecutionHostId; tabId: string; leafId: string }
 ): number {
+  if (!ORCA_LAYOUT_OWNER_IS_MAIN && runtime.ptyBindingTrackedTabsByHost) {
+    const tabs = runtime.ptyBindingTrackedTabsByHost.get(hostId) ?? new Map<string, Set<string>>()
+    const leaves = tabs.get(tabId) ?? new Set<string>()
+    leaves.add(leafId)
+    tabs.set(tabId, leaves)
+    runtime.ptyBindingTrackedTabsByHost.set(hostId, tabs)
+  }
   const key = generationKey(hostId, leafId)
   const value = runtime.ptyBindingGenerations.get(key)
   if (value !== undefined) {
@@ -54,6 +60,48 @@ export function trackPtyBindingGeneration(
   return runtime.ptyBindingGenerationSequence
 }
 
+function reconcileTrackedWindowPanes(
+  runtime: GenerationRuntime,
+  hostId: ExecutionHostId,
+  before: WorkspaceSessionState | undefined,
+  after: WorkspaceSessionState
+): void {
+  const tracked = runtime.ptyBindingTrackedTabsByHost?.get(hostId)
+  if (
+    !tracked ||
+    (before?.terminalLayoutsByTabId === after.terminalLayoutsByTabId &&
+      before?.terminalPtyIncarnationsByPaneKey === after.terminalPtyIncarnationsByPaneKey)
+  ) {
+    return
+  }
+  for (const [tabId, leaves] of tracked) {
+    const old = before?.terminalLayoutsByTabId?.[tabId]
+    const next = after.terminalLayoutsByTabId?.[tabId]
+    const present = old === next ? undefined : new Set(collectLayoutLeafIdsInOrder(next?.root))
+    for (const leafId of leaves) {
+      if (present && !present.has(leafId)) {
+        runtime.ptyBindingGenerations.delete(generationKey(hostId, leafId))
+        leaves.delete(leafId)
+        continue
+      }
+      const paneKey = `${tabId}:${leafId}`
+      if (
+        old?.ptyIdsByLeafId?.[leafId] !== next?.ptyIdsByLeafId?.[leafId] ||
+        before?.terminalPtyIncarnationsByPaneKey?.[paneKey] !==
+          after.terminalPtyIncarnationsByPaneKey?.[paneKey]
+      ) {
+        bumpPtyBindingGeneration(runtime, hostId, leafId)
+      }
+    }
+    if (leaves.size === 0) {
+      tracked.delete(tabId)
+    }
+  }
+  if (tracked.size === 0) {
+    runtime.ptyBindingTrackedTabsByHost?.delete(hostId)
+  }
+}
+
 /** Compare changed layouts only; scalar saves do no work and closed leaves retain no fence entry. */
 export function reconcileTrackedPtyBindingGenerations(
   runtime: GenerationRuntime,
@@ -62,6 +110,10 @@ export function reconcileTrackedPtyBindingGenerations(
   after: WorkspaceSessionState,
   includeUntrackedRebindings = false
 ): void {
+  if (!ORCA_LAYOUT_OWNER_IS_MAIN && !includeUntrackedRebindings) {
+    reconcileTrackedWindowPanes(runtime, hostId, before, after)
+    return
+  }
   if (
     (!includeUntrackedRebindings && runtime.ptyBindingGenerations.size === 0) ||
     before?.terminalLayoutsByTabId === after.terminalLayoutsByTabId

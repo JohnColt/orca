@@ -192,14 +192,13 @@ async function shutdownTrackedPty(
   authorize?: () => void
 ): Promise<void> {
   const physicalExit = ptyPhysicalExits.get(id)
-  let dispatched = false
   const beforeSignal = authorize
     ? () => {
-        if (!dispatched && ptyProcesses.get(id) === proc) {
-          authorize()
-          cancelPendingLocalPtySpawns(id)
-          dispatched = true
+        if (ptyProcesses.get(id) !== proc) {
+          throw new Error('terminal_pane_owner_changed')
         }
+        authorize()
+        cancelPendingLocalPtySpawns(id)
       }
     : undefined
   const signalRoot = (): void => {
@@ -219,8 +218,12 @@ async function shutdownTrackedPty(
       beforeSignal,
       ownsRoot: () => ptyProcesses.get(id) === proc,
       terminateOwnedTree: () => terminatePtyJob(proc),
-      terminateDescendants: (snapshot) =>
-        terminateShutdownDescendants(snapshot, ptyReportsChildExitStatus.get(id) === false),
+      terminateDescendants: (snapshot, validate) =>
+        terminateShutdownDescendants(
+          snapshot,
+          ptyReportsChildExitStatus.get(id) === false,
+          validate
+        ),
       // Group SIGKILL must wait out the SIGTERM grace so agents can run exit hooks (Claude SessionEnd).
       awaitEscalation: () => operation.immediate
     })

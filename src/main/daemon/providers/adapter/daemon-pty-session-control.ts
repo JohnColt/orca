@@ -106,6 +106,16 @@ export abstract class DaemonPtySessionControl extends DaemonPtySessionInput {
     this.listingDaemons = daemons
   }
 
+  protected trackKeepHistoryShutdown<T>(run: () => Promise<T>): Promise<T> {
+    const shutdown = Promise.resolve().then(run)
+    this.keepHistoryShutdowns.add(shutdown)
+    const forget = (): void => {
+      this.keepHistoryShutdowns.delete(shutdown)
+    }
+    void shutdown.then(forget, forget)
+    return shutdown
+  }
+
   async shutdown(
     id: string,
     opts: { immediate?: boolean; keepHistory?: boolean; deadlineMs?: number }
@@ -117,18 +127,12 @@ export abstract class DaemonPtySessionControl extends DaemonPtySessionInput {
       await this.withHistorySpawnLock(id, () => this.shutdownWithHistoryLock(id, opts))
       return
     }
-    const shutdown = Promise.resolve().then(async () => {
+    await this.trackKeepHistoryShutdown(async () => {
       // Outside the spawn lock, which adopting the session's history takes itself.
       await this.ensureConnected(opts.deadlineMs)
       await this.adoptListedSessionForSleep(id, opts.deadlineMs).catch(() => {})
       await this.withHistorySpawnLock(id, () => this.shutdownWithHistoryLock(id, opts))
     })
-    this.keepHistoryShutdowns.add(shutdown)
-    try {
-      await shutdown
-    } finally {
-      this.keepHistoryShutdowns.delete(shutdown)
-    }
   }
 
   protected async shutdownWithHistoryLock(

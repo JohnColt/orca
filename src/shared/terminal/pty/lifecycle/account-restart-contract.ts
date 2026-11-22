@@ -138,10 +138,12 @@ export type AccountRestartSnapshot = {
   bindingGeneration: number
   tabCreatedAt: number
   owner: { ptyId: string; incarnationId: string } | null
+  attempt?: 'matching' | 'different'
 }
 export const AccountRestartSnapshotSchema = z.object({
   hostEpoch: token,
   bindingGeneration: generation,
   tabCreatedAt: z.number().finite(),
-  owner: z.object({ ptyId: z.string().min(1), incarnationId: token }).nullable()
+  owner: z.object({ ptyId: z.string().min(1), incarnationId: token }).nullable(),
+  attempt: z.enum(['matching', 'different']).optional()
 })

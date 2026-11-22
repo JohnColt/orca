@@ -52,7 +52,7 @@ export abstract class OrcaRuntimeWithTerminalCreateDeduplication extends OrcaRun
       canonicalWorktreeSelector: string | undefined,
       preAllocatedHandle: string | undefined
     ) => Promise<RuntimeTerminalCreate>,
-    options: { wslUserAct?: boolean; accountRestart?: true } = {}
+    options: { wslUserAct?: boolean; accountRestart?: object } = {}
   ): Promise<RuntimeTerminalCreate> {
     // Restart reconciliation requires the pane's owner snapshot, not handle inventory.
     if (options.accountRestart && reconcileExisting) {
@@ -75,7 +75,8 @@ export abstract class OrcaRuntimeWithTerminalCreateDeduplication extends OrcaRun
       clientIdentity,
       workspace.id,
       clientMutationId,
-      kind
+      kind,
+      options.accountRestart
     )
     return this.terminalCreateIdempotency.run(
       clientIdentity,

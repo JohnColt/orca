@@ -1,5 +1,5 @@
 // Why: daemons survive app updates, so wire behavior must be version-gated.
-// v63 checks the PTY incarnation before draining a final checkpoint.
+// v63 checks the PTY incarnation before a fenced checkpoint and refuses restart adoption.
 // v62 asks a reattached Windows ConPTY program to redraw too, so new terminals start on that daemon.
 // v61 enables image previews in the Codex shell function for new terminals.
 // v60 accepts `requestRepaint`, which asks a reattached program to redraw without sending it input.
@@ -23,6 +23,7 @@
 // stay attachable.
 export const PROTOCOL_VERSION = 63
 export const FENCED_HISTORY_CHECKPOINT_PROTOCOL_VERSION = 63
+export const FRESH_RESTART_SESSION_PROTOCOL_VERSION = 63
 export const REPAINT_REQUEST_PROTOCOL_VERSION = 60
 export const FOCUS_LOSS_REPORT_PROTOCOL_VERSION = 56
 export const PTY_FOREGROUND_OBSERVATION_PROTOCOL_VERSION = 55

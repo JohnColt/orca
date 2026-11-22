@@ -182,7 +182,7 @@ export class TerminalHost {
     return Promise.resolve(killed)
   }
 
-  beginFencedTermination(request: PtyFencedTerminationRequest) {
+  beginFencedTermination(request: PtyFencedTerminationRequest & { verifyExitOnly?: true }) {
     return beginTerminalHostFencedTermination(request, {
       sessions: this.sessions,
       pendingCreations: this.pendingCreations,

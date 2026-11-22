@@ -1,4 +1,8 @@
 import { accountRestartBoundary } from '../../../../ipc/pty/pane/account-restart-owner'
+import {
+  accountRestartCreateDispatch,
+  terminalCreateDeduplicationOptions
+} from '../../terminal/account-restart-rpc'
 import { terminalCreateFeatureRequirement } from '../../startup/agent-launch-feature-requirement'
 import { terminalImageViewerSupported } from '../../../terminal/launch/terminal-image-viewer-env'
 import { TERMINAL_WORKSPACE_STOP_METHODS } from './terminal-workspace-stop-methods'
@@ -42,9 +46,7 @@ export const TERMINAL_LIFECYCLE_METHODS = [
     handler: async (params, context) =>
       accountRestartBoundary(params.accountRestart, async () => {
         const { runtime, pairedDeviceId, clientId, clientKind, signal } = context
-        const restart = params.accountRestart
-          ? { accountRestart: params.accountRestart, signal }
-          : {}
+        const restart = accountRestartCreateDispatch(params, signal)
         // Paired viewers create in the background; only caller-local session-tab navigation may select it, never the host renderer.
         const pairedViewer = clientKind !== undefined
         const focus = pairedViewer ? false : params.focus === true
@@ -140,7 +142,7 @@ export const TERMINAL_LIFECYCLE_METHODS = [
               ...(clientKind === 'runtime' ? { reopensPane: true as const } : {}),
               ...(preAllocatedHandle ? { preAllocatedHandle } : {})
             }),
-          { wslUserAct: true, ...(params.accountRestart ? { accountRestart: true as const } : {}) }
+          terminalCreateDeduplicationOptions(params)
         )
         // Switch point. A CLI start is work in the workspace; a window or phone tab is a person opening one.
         if (

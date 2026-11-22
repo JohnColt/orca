@@ -109,7 +109,8 @@ export class DaemonRequestRouter {
         if (
           request.payload.expectedIncarnationId !== undefined ||
           request.payload.requireNoAgentOwner !== undefined ||
-          request.payload.requireUnattached !== undefined
+          request.payload.requireUnattached !== undefined ||
+          request.payload.verifyExitOnly !== undefined
         ) {
           return handleDaemonFencedTermination(request.payload, this.options)
         }

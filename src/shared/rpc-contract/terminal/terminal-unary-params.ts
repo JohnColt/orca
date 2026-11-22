@@ -104,7 +104,8 @@ export const TerminalResolveActive = z.object({
 export const TerminalResolvePane = z.object({
   paneKey: requiredString('Missing pane key'),
   worktreeId: OptionalString,
-  accountRestart: z.literal(true).optional()
+  accountRestart: z.literal(true).optional(),
+  restartAttemptId: z.string().min(1).max(128).optional()
 })
 
 export const TerminalAgentId = z.object({

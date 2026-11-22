@@ -3,6 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 import { existsSync, readFileSync, rmSync } from 'node:fs'
 import { join } from 'node:path'
 import { DaemonPtyAdapter } from '../daemon-pty-adapter'
+import { DaemonPtyRouter } from '../../routing/daemon-pty-router'
+import { createAdapter } from '../../routing/testing/daemon-pty-router-test-fixture'
 import {
   createMockSubprocess,
   startDaemonAdapterHarness,
@@ -14,6 +16,10 @@ import { getHistorySessionDirName } from '../../../history/storage/history-paths
 let harness: DaemonAdapterHarness | undefined
 let adapter: DaemonPtyAdapter | undefined
 let subprocess: ReturnType<typeof createMockSubprocess>
+
+class FinalCheckpointOnlyAdapter extends DaemonPtyAdapter {
+  protected override scheduleCheckpointTimer(): void {}
+}
 
 async function start(Provider = DaemonPtyAdapter): Promise<DaemonPtyAdapter> {
   harness = await startDaemonAdapterHarness(() => {
@@ -98,9 +104,6 @@ describe('DaemonPtyAdapter checked explicit close', () => {
   })
 
   it('preserves output before the first periodic checkpoint during fenced retirement', async () => {
-    class FinalCheckpointOnlyAdapter extends DaemonPtyAdapter {
-      protected override scheduleCheckpointTimer(): void {}
-    }
     const provider = await start(FinalCheckpointOnlyAdapter)
     const created = await spawn(provider)
     subprocess._simulateData('final restart screen\r\n')
@@ -136,6 +139,123 @@ describe('DaemonPtyAdapter checked explicit close', () => {
     )
     expect(checkpoint.snapshotAnsi).toContain('output after refused restart')
   })
+
+  it('reports a naturally exited session when there is no live history left to checkpoint', async () => {
+    const provider = await start()
+    const created = await spawn(provider)
+    subprocess._simulateExit(0)
+    await waitFor(() => !provider.hasPty(created.id))
+    await expect(
+      provider.killFenced({
+        ...checkedRequest(created.id, created.incarnationId),
+        keepHistory: true
+      })
+    ).resolves.toEqual({ outcome: 'already_exited' })
+    expect(subprocess.forceKill).not.toHaveBeenCalled()
+    expect(existsSync(historyTree(created.id))).toBe(true)
+  })
+
+  it.each(['checkpoint', 'kill reply'] as const)(
+    'drains a fenced retirement from the %s before checkpointing for quit',
+    async (stage) => {
+      const id = 'retirement-during-quit'
+      const hostStateAtQuit: boolean[] = []
+      class ObserveQuitAdapter extends FinalCheckpointOnlyAdapter {
+        protected override async checkpointAllSessions(): Promise<void> {
+          hostStateAtQuit.push(this.hasPty(id))
+          await super.checkpointAllSessions()
+        }
+      }
+      const provider = await start(ObserveQuitAdapter)
+      const created = await spawn(provider, id)
+      const checkpointStarted = Promise.withResolvers<void>()
+      const releaseCheckpoint = Promise.withResolvers<void>()
+      const killStarted = Promise.withResolvers<void>()
+      if (stage === 'checkpoint') {
+        const history = provider.getHistoryManager()!
+        const checkpoint = history.checkpoint.bind(history)
+        vi.spyOn(history, 'checkpoint').mockImplementationOnce(async (...args) => {
+          checkpointStarted.resolve()
+          await releaseCheckpoint.promise
+          return checkpoint(...args)
+        })
+      }
+      vi.mocked(subprocess.forceKill).mockImplementation(() => killStarted.resolve())
+      subprocess._simulateData('final output before quit\r\n')
+      const stop = provider.killFenced({
+        ...checkedRequest(id, created.incarnationId),
+        keepHistory: true
+      })
+      const stopping = stop.then((result) => {
+        throw new Error(`Retirement returned before the held stage: ${JSON.stringify(result)}`)
+      })
+      let quit: Promise<void> | undefined
+      try {
+        await Promise.race([
+          stage === 'checkpoint' ? checkpointStarted.promise : killStarted.promise,
+          stopping
+        ])
+        quit = provider.disconnectOnly()
+        releaseCheckpoint.resolve()
+        await Promise.race([killStarted.promise, stopping])
+        // The process is still live until the fake subprocess supplies exit proof.
+        await new Promise<void>((resolve) => setImmediate(resolve))
+      } finally {
+        releaseCheckpoint.resolve()
+        subprocess._simulateExit(0)
+      }
+      await expect(stop).resolves.toEqual({ outcome: 'ended' })
+      await quit
+      expect(hostStateAtQuit).toEqual([false])
+    }
+  )
+
+  it.each(['endpoint unavailable', 'conflicting inventory'] as const)(
+    'refuses to send a fenced stop when %s during the checkpoint',
+    async (change) => {
+      const current = await start(FinalCheckpointOnlyAdapter)
+      const legacy = createAdapter('legacy')
+      const router = new DaemonPtyRouter({ current, legacy: [legacy] })
+      const id = 'checkpoint-route'
+      const result = await router.spawn({ sessionId: id, cols: 80, rows: 24 })
+      const incarnationId = result.incarnationId!
+      const entered = Promise.withResolvers<void>()
+      const release = Promise.withResolvers<void>()
+      const history = current.getHistoryManager()!
+      const checkpoint = history.checkpoint.bind(history)
+      vi.spyOn(history, 'checkpoint').mockImplementationOnce(async (...args) => {
+        entered.resolve()
+        await release.promise
+        return checkpoint(...args)
+      })
+      subprocess._simulateData('before route changed\r\n')
+      const authorize = vi.fn()
+      const stop = router.killFenced(
+        { ...checkedRequest(id, incarnationId), keepHistory: true },
+        authorize
+      )
+      try {
+        await Promise.race([
+          entered.promise,
+          stop.then((outcome) => {
+            throw new Error(`Stop bypassed the checkpoint: ${JSON.stringify(outcome)}`)
+          })
+        ])
+        if (change === 'endpoint unavailable') {
+          vi.spyOn(current, 'listProcesses').mockRejectedValue(new Error('endpoint changed'))
+        } else {
+          vi.mocked(legacy.listProcesses).mockResolvedValue([
+            { id, cwd: '', title: 'duplicate', incarnationId }
+          ])
+        }
+      } finally {
+        release.resolve()
+      }
+      await expect(stop).resolves.toEqual({ outcome: 'refused', reason: 'unverifiable' })
+      expect(subprocess.forceKill).not.toHaveBeenCalled()
+      expect(authorize).not.toHaveBeenCalled()
+    }
+  )
 
   it('holds the lifecycle lock through checked history removal', async () => {
     const provider = await start()

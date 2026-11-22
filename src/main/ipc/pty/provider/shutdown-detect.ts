@@ -13,7 +13,14 @@ export async function shutdownPtyIncarnation(
   if (currentIncarnation && currentIncarnation !== expectedIncarnationId) {
     throw new Error('terminal_pane_owner_changed')
   }
-  if (!provider.supportsFencedTermination?.(id) || !provider.killFenced) {
+  const request = {
+    id,
+    expectedIncarnationId,
+    requireNoAgentOwner: false,
+    requireUnattached: false,
+    keepHistory
+  }
+  if (!provider.killFenced) {
     throw new Error('terminal_replaced_pty_stop_unverified')
   }
   let authorityError: unknown
@@ -27,16 +34,7 @@ export async function shutdownPtyIncarnation(
         }
       }
     : undefined
-  const result = await provider.killFenced(
-    {
-      id,
-      expectedIncarnationId,
-      requireNoAgentOwner: false,
-      requireUnattached: false,
-      keepHistory
-    },
-    checkAuthority
-  )
+  const result = await provider.killFenced(request, checkAuthority)
   if (authorityError) {
     throw authorityError
   }

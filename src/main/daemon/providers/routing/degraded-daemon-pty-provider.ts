@@ -1,6 +1,5 @@
 import type { TerminalExitCause } from '../../../../shared/terminal/pty/lifecycle/terminal-exit-cause'
 import { shutdownRoutedDegradedSession } from './daemon-routed-session-shutdown'
-import { terminateResolvedDaemonSession } from '../../server/daemon-fenced-termination'
 import type { PtyFencedTerminationRequest } from '../../../../shared/terminal/pty/lifecycle/pty-fenced-termination'
 import type { DaemonPtyAdapter } from '../adapter/daemon-pty-adapter'
 import { combineUnsubscribes } from './combine-unsubscribes'
@@ -117,9 +116,7 @@ export class DegradedDaemonPtyProvider implements IPtyProvider {
     this.ownerRecovery.getVerifiedRoute(id)?.supportsFencedTermination?.(id) === true
 
   killFenced = (request: PtyFencedTerminationRequest, authorize?: () => void) =>
-    terminateResolvedDaemonSession(request, authorize, () =>
-      this.ownerRecovery.resolveFencedOwner(request.id, request.expectedIncarnationId)
-    )
+    this.ownerRecovery.killFenced(request, authorize)
 
   write(id: string, data: string): boolean | void {
     return this.providerFor(id).write(id, data)

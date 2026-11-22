@@ -1,4 +1,5 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
+import { takeTerminalHostPendingOutput } from '../../terminal-host/terminal-host-session-inspection-operations'
 import { Session } from '../session'
 import { PRODUCER_PAUSE_FAILSAFE_MS } from '../session-producer-pause'
 
@@ -143,6 +144,23 @@ describe('Session terminal control', () => {
   })
 
   describe('startup command typeahead', () => {
+    it('releases startup input when readiness finishes after a fenced checkpoint', async () => {
+      createSession({ shellReadySupported: true })
+      session.writeStartupCommand('codex resume fixture\r')
+      subprocess.simulateData('\x1b]777;orca-shell')
+
+      expect(
+        takeTerminalHostPendingOutput(session, true, {
+          expectedIncarnationId: session.incarnationId,
+          teardownSnapshot: true
+        })?.incarnationId
+      ).toBe(session.incarnationId)
+
+      subprocess.simulateData('-ready\x07% ')
+      await vi.advanceTimersByTimeAsync(50)
+      expect(subprocess.written).toEqual(['codex resume fixture\r'])
+    })
+
     async function flushAfterReady(typed: string[]): Promise<void> {
       createSession({ shellReadySupported: true })
       session.writeStartupCommand('claude\r')

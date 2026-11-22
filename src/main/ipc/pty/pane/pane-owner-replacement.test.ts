@@ -8,6 +8,10 @@ import { createRuntimePtySpawnState } from '../runtime/spawn-state'
 import { makeRuntimePtySpawnTestDeps } from '../runtime/spawn-preflight-test-deps-fixture'
 import { restorePtyIncarnation } from '../provider/ownership-state'
 import { LocalPtyProvider } from '../../../providers/local-pty/local-pty-provider'
+import { DaemonPtyRouter } from '../../../daemon/providers/routing/daemon-pty-router'
+import { createAdapter } from '../../../daemon/providers/routing/testing/daemon-pty-router-test-fixture'
+import { PROTOCOL_VERSION } from '../../../daemon/protocol/daemon-protocol-version'
+import { resolveAccountRestartPane } from '../../../runtime/terminal/recovery/account-restart-pane-snapshot'
 import { runPtyIpcSpawn } from '../ipc/spawn-run'
 import { stopReplacedPanePty } from '../ipc/renderer-kill'
 import { getLocalPtyProvider, setLocalPtyProvider } from '../provider/registry'
@@ -102,6 +106,48 @@ it('refuses to restart a live incarnation mismatched with the durable pane bindi
   expect(() => accountRestartSnapshot(store, undefined, pane)).toThrow(
     'terminal_pane_owner_unverified'
   )
+})
+
+it('answers restart identity for an exact incarnation without returning the launch token', async () => {
+  const { store } = await fixture()
+  const pane = await bindRestartPane(store, 'bound-restart-pty', 'bound-incarnation')
+  const paneKey = makePaneKey(pane.tabId, pane.leafId)
+  const pty = {
+    ptyId: 'bound-restart-pty',
+    incarnationId: 'bound-incarnation',
+    launchIncarnationId: 'bound-incarnation',
+    launchToken: 'internal-token'
+  }
+  const runtime = {
+    resolveTerminalWorkspaceLaunchScope: vi.fn().mockResolvedValue({ id: worktreeId }),
+    resolveTerminalPane: () => ({
+      ...pty,
+      handle: 'bound-handle',
+      tabId: pane.tabId,
+      leafId: pane.leafId,
+      connected: true
+    })
+  }
+  const matching = await resolveAccountRestartPane(
+    runtime,
+    store,
+    paneKey,
+    worktreeId,
+    () => pty,
+    'internal-token'
+  )
+  const different = await resolveAccountRestartPane(
+    runtime,
+    store,
+    paneKey,
+    worktreeId,
+    () => pty,
+    'other-token'
+  )
+  expect(matching.accountRestart?.attempt).toBe('matching')
+  expect(different.accountRestart?.attempt).toBe('different')
+  expect(matching).not.toHaveProperty('launchToken')
+  expect(different).not.toHaveProperty('launchToken')
 })
 
 it('leaves the original running when the request aborts behind a pane reservation', async () => {
@@ -269,6 +315,69 @@ it('clears the stopped binding after a rejected replacement write restores it', 
   expect(
     store.getWorkspaceSession().terminalLayoutsByTabId[tabId].ptyIdsByLeafId?.[TEST_LEAF_1]
   ).toBeUndefined()
+})
+
+it('retries a confirmed retirement after both replacement and cleanup writes fail', async () => {
+  const { store, authority } = await fixture()
+  const oldId = 'twice-restored-retired-owner'
+  const pane = await bindRestartPane(store, oldId, 'old-incarnation')
+  const operation = beginHostRestart(store, pane, oldId, 'old-incarnation')
+  operation.stop = 'confirmed-retired'
+  const stopped = replaced(oldId)
+  const result = { id: 'failed-first-replacement', incarnationId: 'first-incarnation' }
+  authority.failNextWrite()
+  await expect(
+    savePtySpawnPaneBinding(
+      {
+        accountRestartOperation: operation,
+        result,
+        provider: new LocalPtyProvider(),
+        replacedPaneOwner: stopped,
+        deps: {}
+      },
+      {
+        store,
+        binding: { ...pane, ptyId: result.id, incarnationId: result.incarnationId },
+        refusal: 'terminal_pane_owner_changed',
+        failureLog: 'test replacement write'
+      },
+      undefined
+    )
+  ).rejects.toThrow()
+  authority.failNextWrite()
+  await expect(releaseStoppedPaneBinding(store, stopped, operation)).resolves.toBe(false)
+  expect(accountRestartSnapshot(store, undefined, pane).owner).toEqual({
+    ptyId: oldId,
+    incarnationId: 'old-incarnation'
+  })
+
+  const priorProvider = getLocalPtyProvider()
+  const adapter = createAdapter('current', [], undefined, PROTOCOL_VERSION)
+  vi.mocked(adapter.spawn).mockImplementation(async (opts) => ({
+    id: opts.sessionId!,
+    incarnationId: 'retry-incarnation'
+  }))
+  setLocalPtyProvider(new DaemonPtyRouter({ current: adapter, legacy: [] }))
+  onTestFinished(() => setLocalPtyProvider(priorProvider))
+  const deps = rendererRestartDeps({ ...makeRuntimePtySpawnTestDeps(), store })
+  const retry = await runPtyIpcSpawn(deps, {
+    ...pane,
+    cols: 80,
+    rows: 24,
+    accountRestart: {
+      ...operation.condition,
+      attemptId: 'retry-attempt',
+      expected: {
+        kind: 'endpoint',
+        ptyId: oldId,
+        incarnationId: 'old-incarnation',
+        bindingGeneration: accountRestartSnapshot(store, undefined, pane).bindingGeneration
+      }
+    }
+  })
+  expect(retry.incarnationId).toBe('retry-incarnation')
+  expect(accountRestartSnapshot(store, undefined, pane).owner?.ptyId).toBe(retry.id)
+  expect(adapter.killFenced).not.toHaveBeenCalled()
 })
 
 /** The binding swap must survive the renderer's own pre-connect clear, which strict fences refuse. */
