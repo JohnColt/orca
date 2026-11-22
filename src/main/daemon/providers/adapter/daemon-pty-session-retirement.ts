@@ -15,6 +15,31 @@ import { logSleepFolderRead, readDaemonWslSleepCwdWithFacts } from '../wsl/daemo
 import { resolveSafePtyDefaultCwd } from '../../../providers/working-directory/default-cwd'
 
 export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl {
+  private readonly fencedHistoryStops = new Map<
+    string,
+    { incarnationId: string; preserve: () => void }
+  >()
+
+  protected override clearExitedSessionState(
+    id: string,
+    code: number,
+    incarnationId?: string,
+    options?: { closeHistory?: boolean }
+  ): void {
+    const historyStop = this.fencedHistoryStops.get(id)
+    const currentIncarnation = this.ptyInventory.currentIncarnation(id)
+    if (
+      historyStop &&
+      historyStop.incarnationId === incarnationId &&
+      (!currentIncarnation || currentIncarnation === incarnationId)
+    ) {
+      this.fencedHistoryStops.delete(id)
+      historyStop.preserve()
+      options = { closeHistory: false }
+    }
+    super.clearExitedSessionState(id, code, incarnationId, options)
+  }
+
   supportsFencedTermination(_id: string): boolean {
     return this.protocolVersion >= FENCED_TERMINATION_PROTOCOL_VERSION
   }
@@ -27,6 +52,9 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
       return { outcome: 'refused', reason: 'unsupported' }
     }
     const keepHistory = request.keepHistory === true && this.historyManager !== null
+    if (keepHistory && this.disconnectOnlyPromise) {
+      return { outcome: 'refused', reason: 'unverifiable' }
+    }
     if (keepHistory && this.protocolVersion < FENCED_HISTORY_CHECKPOINT_PROTOCOL_VERSION) {
       return { outcome: 'refused', reason: 'unsupported' }
     }
@@ -44,28 +72,37 @@ export abstract class DaemonPtySessionRetirement extends DaemonPtySessionControl
           ? await this.prepareHistoryForShutdown(id, { expectedIncarnationId })
           : undefined
         authorize?.()
-        preserve?.()
-        const result = await this.client.request<unknown>('kill', {
-          sessionId: id,
-          immediate: true,
-          expectedIncarnationId,
-          requireNoAgentOwner,
-          requireUnattached
-        })
-        if (!isPtyFencedTerminationOutcome(result)) {
-          return { outcome: 'refused', reason: 'unverifiable' }
+        if (preserve) {
+          this.fencedHistoryStops.set(id, { incarnationId: expectedIncarnationId, preserve })
         }
-        const currentIncarnationId = this.sessionIncarnations.get(id)
-        if (
-          (result.outcome === 'ended' || result.outcome === 'already_exited') &&
-          (incarnationBeforeKill === undefined ||
-            incarnationBeforeKill === expectedIncarnationId) &&
-          (currentIncarnationId === undefined || currentIncarnationId === expectedIncarnationId)
-        ) {
-          // Exit may clear the incarnation first; hold the spawn lock through removal to protect replacement sessions.
-          await this.completeShutdownWithHistoryLock(id, { keepHistory: request.keepHistory })
+        try {
+          const result = await this.client.request<unknown>('kill', {
+            sessionId: id,
+            immediate: true,
+            expectedIncarnationId,
+            requireNoAgentOwner,
+            requireUnattached
+          })
+          if (!isPtyFencedTerminationOutcome(result)) {
+            return { outcome: 'refused', reason: 'unverifiable' }
+          }
+          const currentIncarnationId = this.sessionIncarnations.get(id)
+          if (
+            (result.outcome === 'ended' || result.outcome === 'already_exited') &&
+            (incarnationBeforeKill === undefined ||
+              incarnationBeforeKill === expectedIncarnationId) &&
+            (currentIncarnationId === undefined || currentIncarnationId === expectedIncarnationId)
+          ) {
+            const historyStop = this.fencedHistoryStops.get(id)
+            this.fencedHistoryStops.delete(id)
+            historyStop?.preserve()
+            // Exit may clear the incarnation first; hold the spawn lock through removal to protect replacement sessions.
+            await this.completeShutdownWithHistoryLock(id, { keepHistory: request.keepHistory })
+          }
+          return result
+        } finally {
+          this.fencedHistoryStops.delete(id)
         }
-        return result
       })
     } catch {
       return { outcome: 'refused', reason: 'unverifiable' }

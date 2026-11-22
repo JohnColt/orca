@@ -119,6 +119,24 @@ describe('DaemonPtyAdapter checked explicit close', () => {
     expect(provider.getHistoryManager()!.readMeta(created.id)?.endedAt).toBeNull()
   })
 
+  it('keeps preserving live history after a fenced stop is refused', async () => {
+    const provider = await start()
+    const created = await spawn(provider)
+    const request = { ...checkedRequest(created.id, created.incarnationId), keepHistory: true }
+
+    await expect(provider.killFenced({ ...request, requireUnattached: true })).resolves.toEqual({
+      outcome: 'refused',
+      reason: 'attached'
+    })
+    subprocess._simulateData('output after refused restart\r\n')
+    await expect(provider.killFenced(request)).resolves.toEqual({ outcome: 'ended' })
+
+    const checkpoint = JSON.parse(
+      readFileSync(join(historyTree(created.id), 'checkpoint.json'), 'utf8')
+    )
+    expect(checkpoint.snapshotAnsi).toContain('output after refused restart')
+  })
+
   it('holds the lifecycle lock through checked history removal', async () => {
     const provider = await start()
     const created = await spawn(provider)
