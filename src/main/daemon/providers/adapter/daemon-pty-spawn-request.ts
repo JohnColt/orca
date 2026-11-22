@@ -80,7 +80,7 @@ export abstract class DaemonPtySpawnRequest extends DaemonPtyRuntimeState {
   protected abstract reconnectAfterWriteFailure(): void
   protected abstract checkpointSessions(
     sessionIds: Iterable<string>,
-    opts?: { final?: boolean; teardown?: boolean }
+    opts?: { final?: boolean; teardown?: boolean; expectedIncarnationId?: string }
   ): Promise<Set<string>>
   protected abstract publishAuditObservation(observation: DaemonAuditObservation): void
   protected abstract isRetiredEndpointTokenMissing(): boolean

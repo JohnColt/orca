@@ -1,4 +1,5 @@
 import type { RuntimeTerminalCreate } from '../../../../shared/terminal/runtime/runtime-terminal-create-contract'
+import type { TerminalCreateOperationKind } from './remote-runtime-terminal-create-identity'
 
 const DEFAULT_MAX_IN_FLIGHT_TERMINAL_CREATES = 4_096
 
@@ -11,9 +12,10 @@ export class RemoteRuntimeTerminalCreateIdempotency {
     clientIdentity: string,
     worktreeId: string,
     clientMutationId: string,
-    create: () => Promise<RuntimeTerminalCreate>
+    create: () => Promise<RuntimeTerminalCreate>,
+    kind: TerminalCreateOperationKind = 'create'
   ): Promise<RuntimeTerminalCreate> {
-    const key = `${clientIdentity}\0${worktreeId}\0${clientMutationId}`
+    const key = JSON.stringify([kind, clientIdentity, worktreeId, clientMutationId])
     const existing = this.inFlight.get(key)
     if (existing) {
       return existing

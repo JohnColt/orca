@@ -56,9 +56,10 @@ export function installPtyKillIpcHandler(deps: PtyKillIpcDeps): void {
 export async function stopReplacedPanePty(
   deps: PtyKillIpcDeps,
   id: string,
-  expectedIncarnationId?: string
+  expectedIncarnationId?: string,
+  authorize?: () => void
 ): Promise<PtyRetirementEvidence | void> {
-  return stopRendererOwnedPtyAs(deps, { id, expectedIncarnationId }, 'replaced')
+  return stopRendererOwnedPtyAs(deps, { id, expectedIncarnationId, authorize }, 'replaced')
 }
 
 /** Settle only after shutdown is observed or synthesized. */
@@ -75,9 +76,16 @@ export async function stopRendererOwnedPty(
   await stopRendererOwnedPtyAs(deps, args, args?.keepHistory === true ? 'reversible' : null)
 }
 
+type RendererPtyStop = {
+  id: string
+  keepHistory?: boolean
+  expectedIncarnationId?: string
+  authorize?: () => void
+}
+
 async function stopRendererOwnedPtyAs(
   deps: PtyKillIpcDeps,
-  args: { id: string; keepHistory?: boolean; expectedIncarnationId?: string },
+  args: RendererPtyStop,
   intentionalStop: TerminalIntentionalStopKind | null
 ): Promise<PtyRetirementEvidence | void> {
   if (typeof args?.id !== 'string' || !args.id || isRemoteRuntimePtyId(args.id)) {
@@ -108,7 +116,7 @@ async function stopRendererOwnedPtyAs(
 
 async function stopRendererOwnedPtyProcess(
   deps: PtyKillIpcDeps,
-  args: { id: string; keepHistory?: boolean; expectedIncarnationId?: string }
+  args: RendererPtyStop
 ): Promise<PtyRetirementEvidence | void> {
   const { store, runtime, getLocalPtyProviderStartupPromise } = deps
   const connectionId = getPtySshConnectionId(args.id)
@@ -139,7 +147,13 @@ async function stopRendererOwnedPtyProcess(
   }
   const shutdownProvider = provider ?? getProviderForPty(args.id)
   const proof = args.expectedIncarnationId
-    ? await shutdownPtyIncarnation(shutdownProvider, args.id, args.expectedIncarnationId, true)
+    ? await shutdownPtyIncarnation(
+        shutdownProvider,
+        args.id,
+        args.expectedIncarnationId,
+        true,
+        args.authorize
+      )
     : await stopRendererProviderPty(deps, shutdownProvider, args)
   // Some shutdown paths omit onExit; idempotent cleanup must cover them too.
   const incarnationId = finishPtyShutdown(args.id, connectionId, store, proof)

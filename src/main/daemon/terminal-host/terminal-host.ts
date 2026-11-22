@@ -303,7 +303,7 @@ export class TerminalHost {
   takePendingOutput(
     sessionId: string,
     includeSnapshot: boolean,
-    opts: { teardownSnapshot?: boolean } = {}
+    opts: { teardownSnapshot?: boolean; expectedIncarnationId?: string } = {}
   ): TakePendingOutputResult | null {
     return takeTerminalHostPendingOutput(this.sessions.get(sessionId), includeSnapshot, opts)
   }

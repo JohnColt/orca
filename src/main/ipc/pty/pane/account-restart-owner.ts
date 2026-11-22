@@ -99,6 +99,16 @@ export function assertAccountRestartOwner(
   }
 }
 
+export function authorizeAccountRestartRetirement(state: PtySpawnOperationState): void {
+  const operation = state.accountRestartOperation!
+  const { signal, connectionId } = state.args
+  if (signal?.aborted) {
+    throw new Error('client_disconnected')
+  }
+  assertAccountRestartOwner(state.deps.store, state.deps.runtime, operation, connectionId)
+  operation.stop = 'unknown'
+}
+
 export function stampAccountRestartFailure(
   error: unknown,
   operation: AccountRestartOperation,

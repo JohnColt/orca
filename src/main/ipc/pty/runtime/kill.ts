@@ -30,6 +30,7 @@ type StopAndWaitOptions = {
   deadlineMs?: number
   expectedIncarnationId?: string
   signal?: AbortSignal
+  authorize?: () => void
 }
 
 /** Unproved synthetic exit stays unverifiable; rejected incarnation proof publishes nothing for a same-ID respawn. */
@@ -280,7 +281,8 @@ async function stopAndWaitPty(
       provider,
       ptyId,
       opts.expectedIncarnationId,
-      opts.keepHistory ?? false
+      opts.keepHistory ?? false,
+      opts.authorize
     )
     publishSyntheticExit(
       deps,

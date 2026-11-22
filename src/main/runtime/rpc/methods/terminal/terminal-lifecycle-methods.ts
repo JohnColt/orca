@@ -41,7 +41,10 @@ export const TERMINAL_LIFECYCLE_METHODS = [
     params: TerminalCreateParams,
     handler: async (params, context) =>
       accountRestartBoundary(params.accountRestart, async () => {
-        const { runtime, pairedDeviceId, clientId, clientKind } = context
+        const { runtime, pairedDeviceId, clientId, clientKind, signal } = context
+        const restart = params.accountRestart
+          ? { accountRestart: params.accountRestart, signal }
+          : {}
         // Paired viewers create in the background; only caller-local session-tab navigation may select it, never the host renderer.
         const pairedViewer = clientKind !== undefined
         const focus = pairedViewer ? false : params.focus === true
@@ -65,7 +68,7 @@ export const TERMINAL_LIFECYCLE_METHODS = [
               { tabId: params.tabId, leafId: params.leafId },
               {
                 command: params.command,
-                ...(params.accountRestart ? { accountRestart: params.accountRestart } : {}),
+                ...restart,
                 ...(params.cwd ? { cwd: params.cwd } : {}),
                 ...(params.shell ? { shellOverride: params.shell } : {}),
                 startupCommandDelivery: params.startupCommandDelivery,
@@ -91,7 +94,7 @@ export const TERMINAL_LIFECYCLE_METHODS = [
           pairedDeviceId ?? clientId ?? 'local',
           params.worktree,
           params.accountRestart
-            ? `account-restart:${JSON.stringify([params.accountRestart.requestId, params.accountRestart.attemptId])}`
+            ? JSON.stringify([params.accountRestart.requestId, params.accountRestart.attemptId])
             : params.clientMutationId,
           params.reconcileExisting === true,
           (canonicalWorktreeSelector, preAllocatedHandle) =>
@@ -99,7 +102,7 @@ export const TERMINAL_LIFECYCLE_METHODS = [
               // A CLI command (typed or an agent's) or a window's create is the user's act.
               wslUserAct: true,
               command: params.command,
-              ...(params.accountRestart ? { accountRestart: params.accountRestart } : {}),
+              ...restart,
               terminalImageViewerSupported: terminalImageViewerSupported(context),
               ...(params.shell ? { shellOverride: params.shell } : {}),
               startupCommandDelivery: params.startupCommandDelivery,

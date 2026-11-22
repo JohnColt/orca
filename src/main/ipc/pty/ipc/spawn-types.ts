@@ -140,6 +140,7 @@ export type PtySpawnIpcDeps = PtySpawnCodexResumeDeps & {
   syncPtyBackgroundedDelivery: (id: string, caller: string) => void
   stopReplacedPty: (
     id: string,
-    expectedIncarnationId?: string
+    expectedIncarnationId?: string,
+    authorize?: () => void
   ) => Promise<PtyRetirementEvidence | void>
 }

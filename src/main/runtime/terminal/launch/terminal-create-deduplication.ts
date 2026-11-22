@@ -70,10 +70,12 @@ export abstract class OrcaRuntimeWithTerminalCreateDeduplication extends OrcaRun
       options
     )
     const canonicalWorktreeSelector = `id:${workspace.id}`
+    const kind = options.accountRestart ? 'account-restart' : 'create'
     const preAllocatedHandle = deriveRemoteRuntimeTerminalCreateHandle(
       clientIdentity,
       workspace.id,
-      clientMutationId
+      clientMutationId,
+      kind
     )
     return this.terminalCreateIdempotency.run(
       clientIdentity,
@@ -92,7 +94,8 @@ export abstract class OrcaRuntimeWithTerminalCreateDeduplication extends OrcaRun
           }
         }
         return await run(canonicalWorktreeSelector, preAllocatedHandle)
-      }
+      },
+      kind
     )
   }
 

@@ -188,14 +188,26 @@ function requestTrackedPtyShutdown(id: string, proc: pty.IPty, immediate: boolea
 async function shutdownTrackedPty(
   id: string,
   proc: pty.IPty,
-  operation: PtyShutdownOperation
+  operation: PtyShutdownOperation,
+  authorize?: () => void
 ): Promise<void> {
   const physicalExit = ptyPhysicalExits.get(id)
+  let dispatched = false
+  const beforeSignal = authorize
+    ? () => {
+        if (!dispatched && ptyProcesses.get(id) === proc) {
+          authorize()
+          cancelPendingLocalPtySpawns(id)
+          dispatched = true
+        }
+      }
+    : undefined
   const signalRoot = (): void => {
     // Natural exit can race descendant capture; never signal after losing this PTY handle.
     if (ptyProcesses.get(id) !== proc) {
       return
     }
+    beforeSignal?.()
     // Cancel startup delivery now, but keep the exit listener and ownership maps until node-pty reports physical exit.
     runPtyCleanup(id)
     operation.rootSignalled = true
@@ -204,6 +216,7 @@ async function shutdownTrackedPty(
   if (ptyAgentSessionIds.has(id) || operation.immediate) {
     // Typed agents also detach tool process groups; immediate close must snapshot before root exit.
     await killWithDescendantSweep(proc.pid, signalRoot, {
+      beforeSignal,
       ownsRoot: () => ptyProcesses.get(id) === proc,
       terminateOwnedTree: () => terminatePtyJob(proc),
       terminateDescendants: (snapshot) =>
@@ -219,12 +232,15 @@ async function shutdownTrackedPty(
 
 export async function shutdownLocalPty(
   id: string,
-  opts: { immediate?: boolean; keepHistory?: boolean }
+  opts: { immediate?: boolean; keepHistory?: boolean; authorize?: () => void }
 ): Promise<void> {
-  cancelPendingLocalPtySpawns(id)
+  if (!opts.authorize) {
+    cancelPendingLocalPtySpawns(id)
+  }
   const pending = ptyShutdownOperations.get(id)
   if (pending) {
     if (opts.immediate === true) {
+      opts.authorize?.()
       pending.immediate = true
       if (pending.rootSignalled && ptyProcesses.get(id) === pending.proc) {
         requestTrackedPtyShutdown(id, pending.proc, true)
@@ -243,7 +259,7 @@ export async function shutdownLocalPty(
     rootSignalled: false,
     proc
   }
-  entry.promise = shutdownTrackedPty(id, proc, entry)
+  entry.promise = shutdownTrackedPty(id, proc, entry, opts.authorize)
   ptyShutdownOperations.set(id, entry)
   try {
     await entry.promise

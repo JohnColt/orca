@@ -1,12 +1,17 @@
-import { expect, it, vi } from 'vitest'
+import { expect, it, onTestFinished, vi } from 'vitest'
 import { toSshExecutionHostId } from '../../../../shared/execution-host/execution-host'
 import { makePaneKey } from '../../../../shared/workspace-layout/stable-pane-id'
+import { getDefaultSettings } from '../../../../shared/orca-profiles/constants'
 import { savePtySpawnPaneBinding } from '../spawn/spawn-commit-binding'
 import { runPtySpawn } from '../spawn/spawn-operation'
 import { createRuntimePtySpawnState } from '../runtime/spawn-state'
 import { makeRuntimePtySpawnTestDeps } from '../runtime/spawn-preflight-test-deps-fixture'
 import { restorePtyIncarnation } from '../provider/ownership-state'
 import { LocalPtyProvider } from '../../../providers/local-pty/local-pty-provider'
+import { runPtyIpcSpawn } from '../ipc/spawn-run'
+import { stopReplacedPanePty } from '../ipc/renderer-kill'
+import { getLocalPtyProvider, setLocalPtyProvider } from '../provider/registry'
+import { spawnPtyFromRuntimeController } from '../runtime/spawn'
 import { accountRestartSnapshot, beginAccountRestartOperation } from './account-restart-owner'
 import { resolveEarlyPaneSpawnReservationKey } from './spawn-pane-coordinates'
 import { clearPaneSpawnReservation, reservePaneSpawn } from './spawn-reservation'
@@ -36,15 +41,40 @@ function replaced(ptyId: string): ReplacedPaneOwner {
 
 type FixtureStore = Awaited<ReturnType<typeof fixture>>['store']
 
-async function bindRestartPane(store: FixtureStore, ptyId: string, incarnationId: string) {
+function localRestartProvider(): LocalPtyProvider {
+  const previous = getLocalPtyProvider()
+  const provider = new LocalPtyProvider()
+  setLocalPtyProvider(provider)
+  onTestFinished(() => setLocalPtyProvider(previous))
+  return provider
+}
+
+function rendererRestartDeps(deps: ReturnType<typeof makeRuntimePtySpawnTestDeps>) {
+  return {
+    ...deps,
+    getSettings: () => deps.getSettings?.() ?? getDefaultSettings('/tmp'),
+    transitionSpawnHiddenRendererPtyDeliveryState: () => {},
+    syncPtyBackgroundedDelivery: () => {},
+    stopReplacedPty: (id: string, incarnation?: string, authorize?: () => void) =>
+      stopReplacedPanePty(deps, id, incarnation, authorize)
+  }
+}
+
+function restartPane(store: FixtureStore) {
   const pane = { worktreeId, tabId, leafId: TEST_LEAF_1 }
-  await store.persistPtyBinding({ ...pane, ptyId, incarnationId })
   return {
     ...pane,
     tabCreatedAt: store
       .getWorkspaceSession()
       .tabsByWorktree[worktreeId].find((tab) => tab.id === tabId)!.createdAt
   }
+}
+
+async function bindRestartPane(store: FixtureStore, ptyId: string, incarnationId: string) {
+  const pane = { worktreeId, tabId, leafId: TEST_LEAF_1 }
+  await admitRuntimeSpawnPane(store, pane)
+  await store.persistPtyBinding({ ...pane, ptyId, incarnationId })
+  return restartPane(store)
 }
 
 function beginHostRestart(
@@ -101,6 +131,110 @@ it('leaves the original running when the request aborts behind a pane reservatio
   held.resolve({ id: 'waiting-owner' })
 
   await expect(restart).rejects.toThrow('client_disconnected')
+})
+
+it.each(['runtime', 'renderer'] as const)(
+  'keeps the original running when the %s stop loses its pane generation during provider startup',
+  async (entryPoint) => {
+    const provider = localRestartProvider()
+    const providerStarted = Promise.withResolvers<void>()
+    const releaseStartup = Promise.withResolvers<void>()
+    const retire = vi.fn()
+    vi.spyOn(provider, 'killFenced').mockImplementation(async (_request, authorize) => {
+      authorize?.()
+      retire()
+      return { outcome: 'ended' }
+    })
+    const { store } = await fixture()
+    const pane = await bindRestartPane(store, 'delayed-stop', 'original-incarnation')
+    const { condition } = beginHostRestart(store, pane, 'delayed-stop', 'original-incarnation')
+    const deps = {
+      ...makeRuntimePtySpawnTestDeps(),
+      store,
+      getLocalPtyProviderStartupPromise: () => {
+        providerStarted.resolve()
+        return releaseStartup.promise
+      }
+    }
+    const args = { ...pane, cols: 80, rows: 24, accountRestart: condition }
+    const pending =
+      entryPoint === 'runtime'
+        ? spawnPtyFromRuntimeController(deps, args)
+        : runPtyIpcSpawn(rendererRestartDeps(deps), args)
+    const rejection = expect(pending).rejects.toThrow('terminal_pane_owner_changed')
+    try {
+      await providerStarted.promise
+      await store.persistPtyBinding({ ...pane, ptyId: 'intervening', incarnationId: 'other' })
+      await store.persistPtyBinding({
+        ...pane,
+        ptyId: 'delayed-stop',
+        incarnationId: 'original-incarnation'
+      })
+    } finally {
+      releaseStartup.resolve()
+    }
+    await rejection
+    expect(retire).not.toHaveBeenCalled()
+  }
+)
+
+async function emptyRestartPane(store: FixtureStore) {
+  await admitRuntimeSpawnPane(store, { worktreeId, tabId, leafId: TEST_LEAF_1 })
+  const pane = restartPane(store)
+  const { hostEpoch, bindingGeneration } = accountRestartSnapshot(store, undefined, pane)
+  return {
+    ...pane,
+    cols: 80,
+    rows: 24,
+    accountRestart: {
+      requestId: 'request-new-account',
+      attemptId: 'expected-attempt',
+      hostEpoch,
+      pane,
+      expected: { kind: 'empty' as const, bindingGeneration }
+    }
+  }
+}
+
+it('sends the restart attempt to the provider despite a request to delete its environment key', async () => {
+  const provider = localRestartProvider()
+  const spawn = vi.spyOn(provider, 'spawn').mockResolvedValue({
+    id: 'fresh-account-process',
+    incarnationId: 'fresh-account-incarnation'
+  })
+  const { store } = await fixture()
+  const args = await emptyRestartPane(store)
+  await runPtyIpcSpawn(rendererRestartDeps({ ...makeRuntimePtySpawnTestDeps(), store }), {
+    ...args,
+    env: { ORCA_AGENT_LAUNCH_TOKEN: 'old-attempt', DROP_THIS: 'requested' },
+    envToDelete: ['ORCA_AGENT_LAUNCH_TOKEN', 'DROP_THIS']
+  })
+  const launch = spawn.mock.calls[0]?.[0]
+  expect(launch?.env?.ORCA_AGENT_LAUNCH_TOKEN).toBe('expected-attempt')
+  expect(launch?.env?.DROP_THIS).toBeUndefined()
+  expect(launch?.envToDelete).not.toContain('ORCA_AGENT_LAUNCH_TOKEN')
+})
+
+it('refuses to commit an existing provider session as a fresh account restart', async () => {
+  const provider = localRestartProvider()
+  const spawn = vi.spyOn(provider, 'spawn').mockResolvedValue({
+    id: 'previous-account-process',
+    incarnationId: 'previous-account-incarnation',
+    isReattach: true
+  })
+  const { store } = await fixture()
+  const args = await emptyRestartPane(store)
+  const deps = rendererRestartDeps({ ...makeRuntimePtySpawnTestDeps(), store })
+
+  await expect(
+    runPtyIpcSpawn(deps, { ...args, sessionId: 'previous-account-process' })
+  ).rejects.toThrow('invalid_account_restart')
+  expect(spawn).not.toHaveBeenCalled()
+  await expect(runPtyIpcSpawn(deps, args)).rejects.toThrow(
+    'terminal_account_restart_outcome_unknown'
+  )
+  const layout = store.getWorkspaceSession().terminalLayoutsByTabId[tabId]
+  expect(layout.ptyIdsByLeafId?.[TEST_LEAF_1]).toBeUndefined()
 })
 
 it('clears the stopped binding after a rejected replacement write restores it', async () => {

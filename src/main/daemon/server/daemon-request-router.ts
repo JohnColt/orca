@@ -180,7 +180,7 @@ export class DaemonRequestRouter {
         return this.options.host.takePendingOutput(
           request.payload.sessionId,
           request.payload.includeSnapshot === true,
-          { teardownSnapshot: request.payload.teardownSnapshot === true }
+          request.payload
         )
       case 'ping':
       case 'systemResolverHealth':

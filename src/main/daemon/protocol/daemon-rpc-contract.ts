@@ -227,11 +227,13 @@ export type TakePendingOutputRequest = {
     includeSnapshot?: boolean
     /** Final pre-teardown checkpoints may release held parser bytes without disturbing live or warm snapshots. */
     teardownSnapshot?: boolean
+    expectedIncarnationId?: string
   }
 }
 
 export type TakePendingOutputResult = {
   records: PendingOutputRecord[]
+  incarnationId?: string
   /** Absent on older daemons; records stays held-only with includeSnapshot to avoid mixed-version duplicate replay. */
   drainedRecords?: PendingOutputRecord[]
   /** Persist nondecreasing batch numbers to detect lost records; empty incremental takes repeat the prior value. */

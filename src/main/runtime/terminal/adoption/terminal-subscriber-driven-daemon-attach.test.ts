@@ -549,3 +549,121 @@ it('never creates while reconciling an absent account-restart mutation', async (
   ).rejects.toThrow('terminal_account_restart_outcome_unknown')
   expect(spawn).not.toHaveBeenCalled()
 })
+
+it.each(['paired', 'window'] as const)(
+  'prevents a %s restart from reaching the stop after its RPC caller disconnects',
+  async (surface) => {
+    const runtime = new OrcaRuntimeService()
+    vi.spyOn(internals(runtime), 'resolveTerminalWorkspaceLaunchScope').mockResolvedValue({
+      id: WORKTREE_ID,
+      connectionId: null
+    })
+    const entered = Promise.withResolvers<void>()
+    const release = Promise.withResolvers<void>()
+    const stopped = vi.fn()
+    const create = async (signal?: AbortSignal) => {
+      entered.resolve()
+      await release.promise
+      if (signal?.aborted) {
+        throw new Error('client_disconnected')
+      }
+      stopped()
+      return { handle: 'stopped-old-terminal', worktreeId: WORKTREE_ID, title: null }
+    }
+    if (surface === 'window') {
+      vi.spyOn(runtime, 'startWindowTabTerminal').mockImplementation((_workspace, _pane, opts) =>
+        create(opts.signal)
+      )
+    } else {
+      vi.spyOn(runtime, 'createTerminal').mockImplementation((_workspace, opts) =>
+        create(opts?.signal)
+      )
+    }
+    const abort = new AbortController()
+    const leafId = '11111111-1111-4111-8111-111111111111'
+    const tabId = 'rpc-restart-tab'
+    const dispatcher = new RpcDispatcher({ runtime, methods: TERMINAL_METHODS })
+    const pending = dispatcher.dispatch(
+      {
+        id: 'disconnect-restart',
+        authToken: 'test',
+        method: 'terminal.create',
+        params: {
+          worktree: `id:${WORKTREE_ID}`,
+          tabId,
+          leafId,
+          ...(surface === 'window' ? { windowTab: true } : {}),
+          accountRestart: {
+            requestId: 'request-1',
+            attemptId: 'attempt-1',
+            hostEpoch: 'host-1',
+            pane: { worktreeId: WORKTREE_ID, tabId, leafId, tabCreatedAt: 1 },
+            expected: {
+              kind: 'endpoint',
+              ptyId: PTY_ID,
+              incarnationId: 'inc-1',
+              bindingGeneration: 1
+            }
+          }
+        }
+      },
+      surface === 'window'
+        ? { caller: { kind: 'desktop' }, signal: abort.signal }
+        : { clientKind: 'runtime', pairedDeviceId: 'device-1', signal: abort.signal }
+    )
+    try {
+      await Promise.race([
+        entered.promise,
+        pending.then((result) => {
+          throw new Error(`Restart did not reach the host create entry: ${JSON.stringify(result)}`)
+        })
+      ])
+      abort.abort()
+    } finally {
+      release.resolve()
+    }
+    expect(await pending).toMatchObject({ ok: false })
+    expect(stopped).not.toHaveBeenCalled()
+  }
+)
+
+it('uses separate in-flight results and handles for creates and account restarts', async () => {
+  const runtime = new OrcaRuntimeService()
+  vi.spyOn(internals(runtime), 'resolveTerminalWorkspaceLaunchScope').mockResolvedValue({
+    id: WORKTREE_ID,
+    connectionId: null
+  })
+  const ordinaryEntered = Promise.withResolvers<void>()
+  const finishOrdinary = Promise.withResolvers<void>()
+  const workspace = `id:${WORKTREE_ID}`
+  const mutationId = '["request-1","attempt-1"]'
+  const ordinary = runtime.dedupeTerminalCreate(
+    'device-1',
+    workspace,
+    mutationId,
+    false,
+    async (_canonical, handle) => {
+      ordinaryEntered.resolve()
+      await finishOrdinary.promise
+      return { handle: handle ?? '', worktreeId: WORKTREE_ID, title: 'ordinary' }
+    }
+  )
+  await ordinaryEntered.promise
+  const restart = runtime.dedupeTerminalCreate(
+    'device-1',
+    workspace,
+    mutationId,
+    false,
+    async (_canonical, handle) => ({
+      handle: handle ?? '',
+      worktreeId: WORKTREE_ID,
+      title: 'restart'
+    }),
+    { accountRestart: true }
+  )
+  finishOrdinary.resolve()
+  const [created, restarted] = await Promise.all([ordinary, restart])
+  expect(created.title).toBe('ordinary')
+  expect(restarted.title).toBe('restart')
+  expect(restarted.handle).not.toBe(created.handle)
+})

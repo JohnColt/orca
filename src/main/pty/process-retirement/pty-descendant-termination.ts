@@ -178,6 +178,7 @@ export async function captureDescendantSnapshot(
 type KillSweepDeps = SnapshotDeps &
   TerminateDeps & {
     ownsRoot?: () => boolean
+    beforeSignal?: () => void
     /** Shutdown can retain the owner until descendant escalation finishes. */
     terminateDescendants?: (snapshot: DescendantSnapshot) => void | Promise<unknown>
     awaitEscalation?: boolean | (() => boolean)
@@ -198,14 +199,18 @@ export async function killWithDescendantSweep(
     try {
       if ((deps.ownsRoot?.() ?? true) && Number.isInteger(rootPid) && rootPid > 0) {
         // Owned jobs survive PID reuse and include descendants reparented away from the shell.
-        if (deps.terminateOwnedTree?.() === 'terminated') {
-          return
+        if (deps.terminateOwnedTree) {
+          deps.beforeSignal?.()
+          if (deps.terminateOwnedTree() === 'terminated') {
+            return
+          }
         }
         // ConPTY closes the shell handle before JS sees exit; require OS identity to reject recycled PIDs.
         const verify = deps.verifyTreeKillTarget ?? verifyWindowsTreeKillTarget
         const target = await verify(rootPid).catch((): WindowsTreeKillTarget => 'unknown')
         // Re-check ownership: the identity query awaits, so exit can land meanwhile.
         if (target === 'own' && (deps.ownsRoot?.() ?? true)) {
+          deps.beforeSignal?.()
           const killTree =
             deps.killWindowsTree ??
             ((pid: number) => terminateWindowsProcessTree(pid, { site: 'pty-descendant-sweep' }))
@@ -226,6 +231,7 @@ export async function killWithDescendantSweep(
   if (awaitEscalation) {
     try {
       if (snapshot && (deps.ownsRoot?.() ?? true)) {
+        deps.beforeSignal?.()
         descendants = deps.terminateDescendants
           ? deps.terminateDescendants(snapshot)
           : terminateDescendantSnapshot(snapshot, deps)
@@ -239,6 +245,7 @@ export async function killWithDescendantSweep(
   try {
     // Signal descendants before root death creates a reparent/PID-reuse window.
     if (snapshot && (deps.ownsRoot?.() ?? true)) {
+      deps.beforeSignal?.()
       descendants = deps.terminateDescendants
         ? deps.terminateDescendants(snapshot)
         : terminateDescendantSnapshot(snapshot, deps)

@@ -1,5 +1,8 @@
 import { toSshExecutionHostId } from '../../../../shared/execution-host/execution-host'
-import { beginAccountRestartOperation } from '../pane/account-restart-owner'
+import {
+  authorizeAccountRestartRetirement,
+  beginAccountRestartOperation
+} from '../pane/account-restart-owner'
 import { readAccountRestartCondition } from '../../../../shared/terminal/pty/lifecycle/account-restart-contract'
 import { stopAndWaitPtyFromRuntimeController } from './kill'
 import { runPtySpawn, normalizePtySpawnSessionId } from '../spawn/spawn-operation'
@@ -26,6 +29,7 @@ export async function spawnPtyFromRuntimeController(
   if (
     args.accountRestart &&
     (!condition ||
+      args.sessionId !== undefined ||
       condition.pane.worktreeId !== args.worktreeId ||
       condition.pane.tabId !== args.tabId ||
       condition.pane.leafId !== args.leafId)
@@ -45,7 +49,6 @@ export async function spawnPtyFromRuntimeController(
       ? {
           replace: async () => {
             const operation = ctx.accountRestartOperation!
-            operation.stop = 'unknown'
             const original = operation.original!
             const settleStop = deps.runtime?.intentionalPtyStops?.mark(
               original.ptyId,
@@ -57,7 +60,8 @@ export async function spawnPtyFromRuntimeController(
               stopped = await stopAndWaitPtyFromRuntimeController(deps, original.ptyId, {
                 keepHistory: true,
                 expectedIncarnationId: original.incarnationId,
-                signal: args.signal
+                signal: args.signal,
+                authorize: () => authorizeAccountRestartRetirement(ctx)
               })
               if (!stopped) {
                 throw new Error('terminal_replaced_pty_stop_unverified')

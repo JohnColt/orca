@@ -1,4 +1,7 @@
-import { beginAccountRestartOperation } from '../pane/account-restart-owner'
+import {
+  authorizeAccountRestartRetirement,
+  beginAccountRestartOperation
+} from '../pane/account-restart-owner'
 import { readAccountRestartCondition } from '../../../../shared/terminal/pty/lifecycle/account-restart-contract'
 import { AGENT_LAUNCH_PANE_REFUSED_CODE } from '../../../../shared/agent-launch/contracts/agent-launch-pane-verdict'
 import { requireAcceptedSpawn } from '../spawn/spawn-outcome'
@@ -22,6 +25,7 @@ import { ORCA_LAYOUT_OWNER_IS_MAIN } from '../../../../shared/workspace-layout/l
 import { refuseClosedPaneSpawn } from './closed-pane-spawn-refusal'
 import { resolveStablePaneOwner } from '../pane/stable-owner'
 import { excludeReplacedPaneOwner } from '../pane/replaced-pane-owner'
+import { withAgentLaunchToken } from '../../../agent-launch/agent-launch-token'
 
 export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, request: PtySpawnIpcArgs) {
   const args = { ...request, sessionId: normalizePtySpawnSessionId(request.sessionId) }
@@ -40,13 +44,14 @@ export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, request: PtySpawnIpc
       condition.expected.kind === 'endpoint' ? condition.expected.ptyId : undefined
     if (
       args.attachOnlyView === true ||
+      args.sessionId !== undefined ||
       (args.replacesPtyId !== undefined && args.replacesPtyId !== expectedPtyId)
     ) {
       throw new Error('invalid_account_restart')
     }
     args.replacesPtyId = expectedPtyId
     args.launchToken = condition.attemptId
-    args.env = { ...args.env, ORCA_AGENT_LAUNCH_TOKEN: condition.attemptId }
+    args.env = withAgentLaunchToken(args.env, condition.attemptId)
   }
   const ctx = createPtyIpcSpawnState(deps, args)
   if (condition) {
@@ -133,11 +138,11 @@ export async function runPtyIpcSpawn(deps: PtySpawnIpcDeps, request: PtySpawnIpc
     ...(args.replacesPtyId !== undefined
       ? {
           replace: async () => {
-            if (ctx.accountRestartOperation) {
-              ctx.accountRestartOperation.stop = 'unknown'
-            }
             ctx.replacedPaneOwner = await stopReplacedPaneOwner(deps, {
               expectedIncarnationId: ctx.accountRestartOperation?.original?.incarnationId,
+              authorize: ctx.accountRestartOperation
+                ? () => authorizeAccountRestartRetirement(ctx)
+                : undefined,
               replacesPtyId: args.replacesPtyId!,
               paneKey: resolveEarlyPaneKey(args),
               worktreeId: args.worktreeId,

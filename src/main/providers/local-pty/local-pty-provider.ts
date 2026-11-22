@@ -119,14 +119,17 @@ export class LocalPtyProvider implements IPtyProvider {
     return true
   }
 
-  async killFenced({
-    id,
-    expectedIncarnationId,
-    requireNoAgentOwner,
-    requireUnattached,
-    keepHistory,
-    switchCondition
-  }: PtyFencedTerminationRequest): Promise<PtyFencedTerminationOutcome> {
+  async killFenced(
+    {
+      id,
+      expectedIncarnationId,
+      requireNoAgentOwner,
+      requireUnattached,
+      keepHistory,
+      switchCondition
+    }: PtyFencedTerminationRequest,
+    authorize?: () => void
+  ): Promise<PtyFencedTerminationOutcome> {
     if (!ptyProcesses.has(id)) {
       return { outcome: 'already_exited' }
     }
@@ -140,7 +143,7 @@ export class LocalPtyProvider implements IPtyProvider {
       return { outcome: 'refused', reason: 'unsupported' }
     }
     try {
-      await shutdownLocalPty(id, { immediate: true, keepHistory })
+      await shutdownLocalPty(id, { immediate: true, keepHistory, authorize })
       return { outcome: 'ended' }
     } catch {
       return { outcome: 'refused', reason: 'unverifiable' }

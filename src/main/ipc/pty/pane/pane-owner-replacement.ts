@@ -17,11 +17,13 @@ export async function stopReplacedPaneOwner(
     store?: Store
     stopReplacedPty: (
       id: string,
-      expectedIncarnationId?: string
+      expectedIncarnationId?: string,
+      authorize?: () => void
     ) => Promise<PtyRetirementEvidence | void>
   },
   args: {
     expectedIncarnationId?: string
+    authorize?: () => void
     replacesPtyId: string
     paneKey: string | null
     worktreeId: string | undefined
@@ -41,7 +43,11 @@ export async function stopReplacedPaneOwner(
   ) {
     throw new Error('terminal_pane_owner_changed')
   }
-  const evidence = await deps.stopReplacedPty(args.replacesPtyId, args.expectedIncarnationId)
+  const evidence = await deps.stopReplacedPty(
+    args.replacesPtyId,
+    args.expectedIncarnationId,
+    args.authorize
+  )
   if (
     args.expectedIncarnationId &&
     (!(evidence instanceof PtyExitProof) || evidence.incarnationId !== args.expectedIncarnationId)

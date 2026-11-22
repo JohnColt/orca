@@ -6,7 +6,8 @@ export async function shutdownPtyIncarnation(
   provider: IPtyProvider,
   id: string,
   expectedIncarnationId: string,
-  keepHistory: boolean
+  keepHistory: boolean,
+  authorize?: () => void
 ): Promise<PtyExitProof> {
   const currentIncarnation = ptyIncarnationById.get(id)
   if (currentIncarnation && currentIncarnation !== expectedIncarnationId) {
@@ -15,13 +16,30 @@ export async function shutdownPtyIncarnation(
   if (!provider.supportsFencedTermination?.(id) || !provider.killFenced) {
     throw new Error('terminal_replaced_pty_stop_unverified')
   }
-  const result = await provider.killFenced({
-    id,
-    expectedIncarnationId,
-    requireNoAgentOwner: false,
-    requireUnattached: false,
-    keepHistory
-  })
+  let authorityError: unknown
+  const checkAuthority = authorize
+    ? () => {
+        try {
+          authorize()
+        } catch (error) {
+          authorityError = error
+          throw error
+        }
+      }
+    : undefined
+  const result = await provider.killFenced(
+    {
+      id,
+      expectedIncarnationId,
+      requireNoAgentOwner: false,
+      requireUnattached: false,
+      keepHistory
+    },
+    checkAuthority
+  )
+  if (authorityError) {
+    throw authorityError
+  }
   if (result.outcome === 'refused') {
     throw new Error(
       result.reason === 'replaced'
