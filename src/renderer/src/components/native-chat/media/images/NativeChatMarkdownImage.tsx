@@ -202,7 +202,7 @@ function NativeChatMarkdownImagePreview({ src, alt }: MarkdownImageProps): React
         }
       }}
       triggerLabel={`${t('components.native-chat.composer.viewAttachment', 'View image')}: ${title}`}
-      className={nativeChatMarkdownImageClassName(imageSize)}
+      className={nativeChatMarkdownImageClassName(attachment ? 'medium' : imageSize)}
       triggerClassName={columnWidth ? 'native-chat-column-image w-full' : undefined}
       onError={() => setFailedSrc(imageSrc)}
       onLoad={() => {
