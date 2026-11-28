@@ -5,13 +5,14 @@ import {
   type NativeChatMessage
 } from '../../../../../../src/shared/native-chat/native-chat-types'
 import { useNativeChatMarkdownImageSize } from '../../preferences/native-chat-markdown-image-size'
-import { styles } from '../messages/mobile-native-chat-message-styles'
+import { useThemedStyles } from '../../../../theme/themed-styles'
+import { stylesSheet } from '../messages/mobile-native-chat-message-styles'
 import { mobileNativeChatMarkdownImageSources } from './mobile-native-chat-markdown-image-sources'
 
 // Android uses a message-actions long press; other platforms keep native inline selection.
 export function MobileNativeChatLongPressContent({
   onLongPress,
-  style = styles.content,
+  style,
   userMessage,
   children
 }: {
@@ -20,14 +21,16 @@ export function MobileNativeChatLongPressContent({
   userMessage?: NativeChatMessage
   children: ReactNode
 }): React.JSX.Element {
+  const styles = useThemedStyles(stylesSheet)
   const imageSize = useNativeChatMarkdownImageSize()
+  const content = style === undefined ? styles.content : style
   const columnImage =
     userMessage &&
     imageSize === 'column' &&
     (userMessage.blocks.some(isImageRefBlock) ||
       mobileNativeChatMarkdownImageSources(userMessage).length > 0)
   const contentStyle = [
-    style,
+    content,
     userMessage && styles.userBubble,
     columnImage && styles.userBubbleColumnWidth
   ]

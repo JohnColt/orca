@@ -17,7 +17,9 @@ describe('native chat markdown image size', () => {
   it('keeps the picture whole at each desktop preset', () => {
     expect(nativeChatMarkdownImageClassName('column')).toBe(`h-auto w-full ${OUTLINE}`)
     expect(nativeChatMarkdownImageClassName('medium')).toBe(`max-h-96 max-w-full ${OUTLINE}`)
-    expect(nativeChatMarkdownImageClassName('compact')).toBe(`max-h-40 max-w-60 ${OUTLINE}`)
+    expect(nativeChatMarkdownImageClassName('compact')).toBe(
+      `max-h-40 max-w-[min(15rem,100%)] ${OUTLINE}`
+    )
     for (const size of ['compact', 'medium', 'column'] as const) {
       expect(nativeChatMarkdownImageClassName(size)).toContain('object-contain')
     }

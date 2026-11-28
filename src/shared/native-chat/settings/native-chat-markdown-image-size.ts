@@ -11,9 +11,9 @@ export function normalizeNativeChatMarkdownImageSize(value: unknown): NativeChat
 
 const DESKTOP_OUTLINE = 'rounded-md object-contain outline outline-1 outline-border/70'
 
-/** Desktop caps. Medium is the previous 384px-tall picture. Compact is 160px tall and 240px wide. */
+/** Desktop caps. Medium is the previous 384px-tall picture. Compact is 160px tall and capped at min(15rem, the column width). */
 const DESKTOP_CLASS_BY_SIZE: Record<NativeChatMarkdownImageSize, string> = {
-  compact: `max-h-40 max-w-60 ${DESKTOP_OUTLINE}`,
+  compact: `max-h-40 max-w-[min(15rem,100%)] ${DESKTOP_OUTLINE}`,
   medium: `max-h-96 max-w-full ${DESKTOP_OUTLINE}`,
   column: `h-auto w-full ${DESKTOP_OUTLINE}`
 }
